@@ -52,4 +52,5 @@ extern void CheckKeyboard(void);
 #define CONFIG_BE		5
 #define CONFIG_UK		6
 #define CONFIG_ES		7
+#define CONFIG_JP		8
 #endif /* PS2KEYBOARD_H_ */

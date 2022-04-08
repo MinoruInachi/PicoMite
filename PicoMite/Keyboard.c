@@ -63,7 +63,7 @@ volatile int KeyDownCode;
 #define NUML    	0x77
 
 // this is a map of the keycode characters and the character to be returned for the keycode
-const char keyCodes[7][128]=
+const char keyCodes[8][128]=
             // US Layout
          {
              {                                                                          //Base 10   Hex
@@ -197,11 +197,30 @@ const char keyCodes[7][128]=
                 0,     '1',       0,     '4',     '7',       0,       0,       0,       //104-111  68-6F
               '0',     '.',     '2',     '5',     '6',     '8',     ESC,       NUML,    //112-119  70-77
               F11,     '+',     '3',     '-',     '*',     '9',       0,       0        //120-127  78-7F
+            },
+		  // JP Layout
+            {                                                                          //Base 10   Hex
+                0,      F9,       0,      F5,      F3,      F1,      F2,     F12,       //00-07    00-07
+                0,     F10,      F8,      F6,      F4,     TAB,       0,       0,       //08-15    08-0F
+                0,     ALT,  L_SHFT,      0,     CTRL,     'q',     '1',       0,       //16-23    10-17
+                0,       0,     'z',     's',     'a',     'w',     '2',       0,       //24-31    18-1F
+                0,     'c',     'x',     'd',     'e',     '4',     '3',       0,       //32-39    20-27
+                0,     ' ',     'v',     'f',     't',     'r',     '5',       0,       //40-48    28-2F
+                0,     'n',     'b',     'h',     'g',     'y',     '6',       0,       //48-56    30-37
+                0,       0,     'm',     'j',     'u',     '7',     '8',       0,       //56-63    38-3F
+                0,     ',',     'k',     'i',     'o',     '0',     '9',       0,       //64-71    40-47
+                0,     '.',     '/',     'l',     ';',     'p',     '-',       0,       //72-79    48-4F
+                0,    '\\',     ':',       0,     '@',     '^',       0,       0,       //80-87    50-57
+             CAPS,  R_SHFT,   ENTER,     '[',       0,     ']',       0,       0,       //88-95    58-5F
+                0,       0,       0,       0,       0,       0,    BKSP,       0,       //96-103   60-67
+                0,     '1',    '\\',     '4',     '7',       0,       0,       0,       //104-111  68-6F
+              '0',     '.',     '2',     '5',     '6',     '8',     ESC,       NUML,    //112-119  70-77
+              F11,     '+',     '3',     '-',     '*',     '9',       0,       0        //120-127  78-7F
             }
         };
 
 // this map is with the shift key pressed
-const char keySCodes[7][128] =
+const char keySCodes[8][128] =
             // US Layout
         {
             {                                                                           //Base 10   Hex
@@ -334,6 +353,25 @@ const char keySCodes[7][128] =
                 0,     '>',       0,       0,       0,       0,    BKSP,       0,       //96-103   60-67
                 0,     '1',       0,     '4',     '7',       0,       0,       0,       //104-111  68-6F
               '0',     '.',     '2',     '5',     '6',     '8',     ESC,       NUML,    //112-119  70-77
+              F11,     '+',     '3',     '-',     '*',     '9',       0,       0        //120-127  78-7F
+            },
+            // JP Layout
+            {                                                                           //Base 10   Hex
+                0,      F9,       0,      F5,      F3,      F1,      F2,     F12,       //00-07    00-07
+                0,     F10,      F8,      F6,      F4,     TAB,       0,       0,       //08-15    08-0F
+                0,     ALT,  L_SHFT,      0,     CTRL,     'Q',     '!',       0,       //16-23    10-17
+                0,       0,     'Z',     'S',     'A',     'W',     '"',       0,       //24-31    18-1F
+                0,     'C',     'X',     'D',     'E',     '$',     '#',       0,       //32-39    20-27
+                0,     ' ',     'V',     'F',     'T',     'R',     '%',       0,       //40-47    28-2F
+                0,     'N',     'B',     'H',     'G',     'Y',     '&',       0,       //48-55    30-37
+                0,       0,     'M',     'J',     'U',    '\'',     '(',       0,       //56-63    38-3F
+                0,     '<',     'K',     'I',     'O',       0,     ')',       0,       //64-71    40-47
+                0,     '>',     '?',     'L',     '+',     'P',     '=',       0,       //72-79    48-4F
+                0,     '_',     '*',       0,     '`',     '~',       0,       0,       //80-87    50-57
+             CAPS,  R_SHFT,   ENTER,     '{',       0,     '}',       0,       0,       //88-95    58-5F
+                0,       0,       0,       0,       0,       0,    BKSP,       0,       //96-103   60-67
+                0,     '1',     '|',     '4',     '7',       0,       0,       0,       //104-111  68-6F
+               '0',    '.',     '2',     '5',     '6',     '8',     ESC,       NUML,    //112-119  70-77
               F11,     '+',     '3',     '-',     '*',     '9',       0,       0        //120-127  78-7F
             }
         };
@@ -804,6 +842,8 @@ void __not_in_flash_func(CNInterrupt)(void) {
                                   break;
                               }
                               break;
+                          case CONFIG_JP:
+                              break;                        			// no code for JP keyboard
                           }
                         else {
                             switch (Option.KeyboardConfig)
@@ -849,6 +889,12 @@ void __not_in_flash_func(CNInterrupt)(void) {
                                     c = keySCodes[6][Code%128];			// a keycode preceeded by a shift
                                 else
                                     c = keyCodes[6][Code%128];			// just a keycode
+                                break;
+                              case CONFIG_JP:
+                                if(LShift || RShift)
+                                    c = keySCodes[7][Code%128];			// a keycode preceeded by a shift
+                                else
+                                    c = keyCodes[7][Code%128];			// just a keycode
                                 break;
                             }
                         }
