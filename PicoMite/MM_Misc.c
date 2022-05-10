@@ -39,7 +39,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 extern int busfault;
 //#include "pico/stdio_usb/reset_interface.h"
 const char *OrientList[] = {"LANDSCAPE", "PORTRAIT", "RLANDSCAPE", "RPORTRAIT"};
+#ifndef JPKBD
+const char *KBrdList[] = {"", "US", "FR", "GR", "IT", "BE", "UK", "ES" };
+#else  // JPKBD
 const char *KBrdList[] = {"", "US", "FR", "GR", "IT", "BE", "UK", "ES", "JP" };
+#endif  // JPKBD
 extern const void * const CallTable[];
 struct s_inttbl inttbl[NBRINTERRUPTS];
 unsigned char *InterruptReturn;
@@ -1675,7 +1679,9 @@ void cmd_option(void) {
 		else if(checkstring(argv[0], "BE"))	Option.KeyboardConfig = CONFIG_BE;
 		else if(checkstring(argv[0], "UK"))	Option.KeyboardConfig = CONFIG_UK;
 		else if(checkstring(argv[0], "ES"))	Option.KeyboardConfig = CONFIG_ES;
+#ifdef JPKBD
 		else if(checkstring(argv[0], "JP"))	Option.KeyboardConfig = CONFIG_JP;
+#endif  // JPKBD
         else error("Syntax");
         Option.capslock=0;
         Option.numlock=1;

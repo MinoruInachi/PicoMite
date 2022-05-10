@@ -63,7 +63,7 @@ volatile int KeyDownCode;
 #define NUML    	0x77
 
 // this is a map of the keycode characters and the character to be returned for the keycode
-const char keyCodes[8][128]=
+const char keyCodes[][128]=
             // US Layout
          {
              {                                                                          //Base 10   Hex
@@ -197,8 +197,9 @@ const char keyCodes[8][128]=
                 0,     '1',       0,     '4',     '7',       0,       0,       0,       //104-111  68-6F
               '0',     '.',     '2',     '5',     '6',     '8',     ESC,       NUML,    //112-119  70-77
               F11,     '+',     '3',     '-',     '*',     '9',       0,       0        //120-127  78-7F
-            },
-		  // JP Layout
+            }
+#ifdef JPKBD
+            ,  // JP Layout
             {                                                                          //Base 10   Hex
                 0,      F9,       0,      F5,      F3,      F1,      F2,     F12,       //00-07    00-07
                 0,     F10,      F8,      F6,      F4,     TAB,       0,       0,       //08-15    08-0F
@@ -217,6 +218,7 @@ const char keyCodes[8][128]=
               '0',     '.',     '2',     '5',     '6',     '8',     ESC,       NUML,    //112-119  70-77
               F11,     '+',     '3',     '-',     '*',     '9',       0,       0        //120-127  78-7F
             }
+#endif  // JPKBD
         };
 
 // this map is with the shift key pressed
@@ -354,8 +356,9 @@ const char keySCodes[8][128] =
                 0,     '1',       0,     '4',     '7',       0,       0,       0,       //104-111  68-6F
               '0',     '.',     '2',     '5',     '6',     '8',     ESC,       NUML,    //112-119  70-77
               F11,     '+',     '3',     '-',     '*',     '9',       0,       0        //120-127  78-7F
-            },
-            // JP Layout
+            }
+#ifdef JPKBD
+            ,  // JP Layout
             {                                                                           //Base 10   Hex
                 0,      F9,       0,      F5,      F3,      F1,      F2,     F12,       //00-07    00-07
                 0,     F10,      F8,      F6,      F4,     TAB,       0,       0,       //08-15    08-0F
@@ -374,6 +377,7 @@ const char keySCodes[8][128] =
                '0',    '.',     '2',     '5',     '6',     '8',     ESC,       NUML,    //112-119  70-77
               F11,     '+',     '3',     '-',     '*',     '9',       0,       0        //120-127  78-7F
             }
+#endif  // JPKBD
         };
 
 // this map is for when the keycode preceeded by 0xe0
@@ -842,8 +846,10 @@ void __not_in_flash_func(CNInterrupt)(void) {
                                   break;
                               }
                               break;
+#ifdef JPKBD
                           case CONFIG_JP:
                               break;                        			// no code for JP keyboard
+#endif  // JPKBD
                           }
                         else {
                             switch (Option.KeyboardConfig)
@@ -890,12 +896,14 @@ void __not_in_flash_func(CNInterrupt)(void) {
                                 else
                                     c = keyCodes[6][Code%128];			// just a keycode
                                 break;
+#ifdef JPKBD
                               case CONFIG_JP:
                                 if(LShift || RShift)
                                     c = keySCodes[7][Code%128];			// a keycode preceeded by a shift
                                 else
                                     c = keyCodes[7][Code%128];			// just a keycode
                                 break;
+#endif  // JPKBD
                             }
                         }
 

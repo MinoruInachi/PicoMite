@@ -1703,7 +1703,11 @@ void ResetOptions(void){
     Option.CPU_Speed=126000;
     Option.DISPLAY_CONSOLE=1;
     Option.DISPLAY_TYPE = MONOVGA;
+#  ifndef JPKBD
     Option.KeyboardConfig = CONFIG_US;
+#  else  // JPKBD
+    Option.KeyboardConfig = CONFIG_JP;
+#  endif  // JPKBD
     Option.VGABC=0x0000;
     Option.VGAFC=0xFFFF;
 #else
