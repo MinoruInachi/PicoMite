@@ -1300,7 +1300,7 @@ void cmd_ireturn(void){
 #endif
 	if(SaveOptionErrorSkip>0)OptionErrorSkip=SaveOptionErrorSkip+1;
     strcpy(MMErrMsg , SaveErrorMessage);
-    if(SaveOptionErrorSkip>0)OptionErrorSkip=SaveOptionErrorSkip+1;
+    MMerrno = Saveerrno;
 }
 
 
