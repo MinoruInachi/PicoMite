@@ -41,7 +41,7 @@ add_executable(PicoMite
 Pico_enable_stdio_usb(PicoMite 1)
 pico_enable_stdio_uart(PicoMite 0)
 pico_add_extra_outputs(PicoMite)
-target_compile_options(PicoMite PRIVATE -DPICO_STDIO_USB_ENABLE_RESET_VIA_VENDOR_INTERFACE=0 -DPICO_STACK_SIZE=0x1000 -DJPKBD)
+target_compile_options(PicoMite PRIVATE -DPICO_STDIO_USB_ENABLE_RESET_VIA_VENDOR_INTERFACE=0 -DPICO_STACK_SIZE=0x1000 -DJPKBD -DIJFONT -DNEXTDAY_SPEC)
 target_link_libraries(PicoMite
     pico_stdlib
     hardware_flash

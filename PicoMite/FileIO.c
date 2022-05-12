@@ -1702,12 +1702,16 @@ void ResetOptions(void){
 #ifdef PICOMITEVGA
     Option.CPU_Speed=126000;
     Option.DISPLAY_CONSOLE=1;
+#  ifndef NEXTDAY_SPEC
     Option.DISPLAY_TYPE = MONOVGA;
-#  ifndef JPKBD
+#  else
+    Option.DISPLAY_TYPE = COLOURVGA;
+#endif
+#  if !defined(JPKBD) || !defined(NEXTDAY_SPEC)
     Option.KeyboardConfig = CONFIG_US;
-#  else  // JPKBD
+#  else  // JPKBD && NEXTDAY_SPEC
     Option.KeyboardConfig = CONFIG_JP;
-#  endif  // JPKBD
+#  endif  // JPKBD && NEXTDAY_SPEC
     Option.VGABC=0x0000;
     Option.VGAFC=0xFFFF;
 #else
@@ -1728,7 +1732,11 @@ void ResetOptions(void){
     Option.INT3pin=11;
     Option.INT4pin=12;
     Option.DefaultBrightness=100;
+#ifndef NEXTDAY_SPEC
     Option.numlock=1;
+#else
+    Option.numlock=0;
+#endif
     Option.repeat=0b101100;
     SaveOptions();
     uSec(250000);

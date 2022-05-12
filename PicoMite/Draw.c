@@ -64,7 +64,11 @@ typedef struct _BMPDECODER
 /***************************************************************************/
 // define the fonts
 
+#ifndef IJFONT
     #include "font1.h"
+#else  // IJFONT
+    #include "ichigojamfont.h"
+#endif  // IJFONT
     #include "Misc_12x20_LE.h"
     #include "Hom_16x24_LE.h"
     #include "Fnt_10x16.h"
@@ -77,7 +81,12 @@ typedef struct _BMPDECODER
 #endif
     #include "smallfont.h"
 
-    unsigned char *FontTable[FONT_TABLE_SIZE] = {   (unsigned char *)font1,
+    unsigned char *FontTable[FONT_TABLE_SIZE] = {
+#ifndef IJFONT
+                                                    (unsigned char *)font1,
+#else  // IJFONT
+                                                    (unsigned char *)ijfont_1_4,
+#endif  // IJFONT
                                                     (unsigned char *)Misc_12x20_LE,
 #ifdef PICOMITEVGA
                                                     (unsigned char *)arial_bold,
@@ -2541,10 +2550,17 @@ void cmd_mode(void){
 //    uSec(10000);
     ResetDisplay();
     CurrentX = CurrentY =0;
+#  if !defined(IJFONT) || !defined(NEXTDAY_SPEC)
     if(mode==2){
         ClearScreen(Option.DefaultBC);
         SetFont((6<<4) | 1) ;
     } else SetFont(1) ;
+#  else  // IJFONT && NEXTDAY_SPEC
+    if(mode==2){
+        ClearScreen(Option.DefaultBC);
+    }
+    SetFont(1) ;
+#  endif  // IJFONT && NEXTDAY_SPEC
 }
 #endif
 void fun_mmcharwidth(void) {

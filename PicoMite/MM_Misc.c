@@ -1688,7 +1688,11 @@ void cmd_option(void) {
 #endif  // JPKBD
         else error("Syntax");
         Option.capslock=0;
+#ifndef NEXTDAY_SPEC
         Option.numlock=1;
+#else
+        Option.numlock=0;
+#endif
         int rs=0b00100000;
         int rr=0b00001100;
         if(argc>=3 && *argv[2])Option.capslock=getint(argv[2],0,1);
@@ -1871,7 +1875,11 @@ void cmd_option(void) {
         int mode=getint(tp,1,2);
         if(mode==2){
             Option.DISPLAY_TYPE=COLOURVGA; 
+#  if !defined(IJFONT) || !defined(NEXTDAY_SPEC)
             Option.DefaultFont=(6<<4) | 1 ;
+#  else  // IJFONT && NEXTDAY_SPEC
+            Option.DefaultFont= 1 ;
+#  endif  // IJFONT && NEXTDAY_SPEC
         } else {
             Option.DISPLAY_TYPE=MONOVGA;
             Option.DefaultFont= 1 ;
