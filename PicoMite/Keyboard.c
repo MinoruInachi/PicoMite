@@ -910,7 +910,14 @@ void __not_in_flash_func(CNInterrupt)(void) {
                         if(!c) goto SkipOut;
 
                         if(c <= 0x7F) {									// a normal character
+#ifndef NEXTDAY_SPEC
                           if(CapsLock && c >= 'a' && c <= 'z') c -= 32;	// adj for caps lock
+#else  // NEXTDAY_SPEC
+                          if(CapsLock) {	// adj for caps lock
+                              if(c >= 'a' && c <= 'z') c -= 32;
+                              else if(c >= 'A' && c <= 'Z') c +=32;
+                          }
+#endif  // NEXTDAY_SPEC
                           if(Ctrl) c &= 0x1F;							// adj for control
                         }
                         else	{										// must be a function key or similar

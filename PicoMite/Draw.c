@@ -1995,6 +1995,33 @@ void fun_at(void) {
     sret = "\0";                                                    // normally pointing sret to a string in flash is illegal
 }
 
+#ifdef NEXTDAY_SPEC
+void cmd_locate(void) {
+    char buf[27];
+    int csrX, csrY;
+
+    getargs(&cmdline, 5, ",");
+    csrX = getinteger(argv[0]);
+    if(argc>=3  && *argv[2])
+        csrY = getinteger(argv[2]);
+    CurrentX = csrX * (FontTable[gui_font >> 4][0] * (gui_font & 0b1111));
+    CurrentY = csrY * (FontTable[gui_font >> 4][1] * (gui_font & 0b1111));
+    if(argc == 5) {
+        PrintPixelMode = getinteger(argv[4]);
+    	if(PrintPixelMode < 0 || PrintPixelMode > 7) {
+            PrintPixelMode = 0;
+            error("Number out of bounds");
+        }
+    } else
+        PrintPixelMode = 0;
+
+    sprintf(buf, "\033[%d;%df", csrY+1, csrX);
+    SSPrintString(buf);  // send it to the USB
+    if(PrintPixelMode==2 || PrintPixelMode==5)SSPrintString("\033[7m");
+    targ=T_STR;
+    sret = "\0";  // normally pointing sret to a string in flash is illegal
+}
+#endif  // NEXTDAY_SPEC
 
 // these three functions were written by Peter Mather (matherp on the Back Shed forum)
 // read the contents of a PIXEL out of screen memory

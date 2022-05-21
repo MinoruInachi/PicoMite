@@ -53,6 +53,9 @@ void cmd_polygon(void);
 void cmd_gui(void);
 void cmd_tile(void);
 void cmd_mode(void);
+#ifdef NEXTDAY_SPEC
+void cmd_locate(void);
+#endif  // NEXTDAY_SPEC
 
 void fun_rgb(void);
 void fun_mmhres(void);
@@ -97,6 +100,9 @@ void fun_getscanline(void);
   	{ (unsigned char *)"GUI",            T_CMD,                      0, cmd_gui   },
 	{ (unsigned char *)"Refresh",        T_CMD,                      0, cmd_refresh	},
 #endif
+#ifdef NEXTDAY_SPEC
+        { (unsigned char *)"LOCATE",         T_CMD,                      0, cmd_locate },
+#endif  // NEXTDAY_SPEC
 
 #endif
 

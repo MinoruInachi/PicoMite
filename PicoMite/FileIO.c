@@ -1706,6 +1706,7 @@ void ResetOptions(void){
     Option.DISPLAY_TYPE = MONOVGA;
 #  else
     Option.DISPLAY_TYPE = COLOURVGA;
+    Option.ColourCode = true;
 #endif
 #  if !defined(JPKBD) || !defined(NEXTDAY_SPEC)
     Option.KeyboardConfig = CONFIG_US;
@@ -1735,7 +1736,9 @@ void ResetOptions(void){
 #ifndef NEXTDAY_SPEC
     Option.numlock=1;
 #else
+    Option.capslock=1;
     Option.numlock=0;
+    Option.Listcase=CONFIG_UPPER;
 #endif
     Option.repeat=0b101100;
     SaveOptions();

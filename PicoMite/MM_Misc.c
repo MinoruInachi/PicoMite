@@ -1667,8 +1667,13 @@ void cmd_option(void) {
     	//if(CurrentLinePtr) error("Invalid in a program");
 		if(checkstring(tp, "DISABLE")){
 			Option.KeyboardConfig = NO_KEYBOARD;
+#ifndef NEXTDAY_SPEC
             Option.capslock=0;
             Option.numlock=0;
+#else
+            Option.capslock=1;
+            Option.numlock=0;
+#endif
             SaveOptions();
             _excep_code = RESET_COMMAND;
             SoftReset();
