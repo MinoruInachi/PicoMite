@@ -2015,11 +2015,9 @@ void cmd_locate(void) {
     } else
         PrintPixelMode = 0;
 
-    sprintf(buf, "\033[%d;%df", csrY+1, csrX);
+    sprintf(buf, "\033[%d;%df", csrY+1, csrX+1);
     SSPrintString(buf);  // send it to the USB
     if(PrintPixelMode==2 || PrintPixelMode==5)SSPrintString("\033[7m");
-    targ=T_STR;
-    sret = "\0";  // normally pointing sret to a string in flash is illegal
 }
 #endif  // NEXTDAY_SPEC
 
