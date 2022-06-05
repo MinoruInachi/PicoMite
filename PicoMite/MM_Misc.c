@@ -1298,7 +1298,7 @@ void cmd_ireturn(void){
         DelayedDrawFmtBox = false;
     }
 #endif
-	if(SaveOptionErrorSkip>0)OptionErrorSkip=SaveOptionErrorSkip+1;
+    if(SaveOptionErrorSkip>0)OptionErrorSkip=SaveOptionErrorSkip+1;
     strcpy(MMErrMsg , SaveErrorMessage);
     MMerrno = Saveerrno;
 }
@@ -1838,7 +1838,6 @@ void cmd_option(void) {
             for(int yp=0;yp<30;yp++){
                 tilefcols[yp*40+xp]=(uint16_t)fcolour;
                 tilebcols[yp*40+xp]=(uint16_t)bcolour;
-
             }
         }
         Option.VGAFC=fcolour;
@@ -2335,7 +2334,7 @@ void cmd_option(void) {
 }
 
 void fun_device(void){
-    sret = GetTempMemory(STRINGSIZE);                                        // this will last for the life of the command
+  sret = GetTempMemory(STRINGSIZE);                                        // this will last for the life of the command
 #ifdef PICOMITEVGA
     strcpy(sret, "PicoMiteVGA");
 #else
@@ -2999,6 +2998,12 @@ int checkdetailinterrupts(void) {
             gui_int_up = false;
             goto GotAnInterrupt;
         }
+    }
+#else
+    if (COLLISIONInterrupt != NULL && CollisionFound) {
+        CollisionFound = false;
+        intaddr = (unsigned char *)COLLISIONInterrupt;									    // set the next stmt to the interrupt location
+        goto GotAnInterrupt;
     }
 #endif
     if(ADCInterrupt && dmarunning){
