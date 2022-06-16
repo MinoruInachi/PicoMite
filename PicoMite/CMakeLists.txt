@@ -40,9 +40,8 @@ add_executable(PicoMite
 )
 Pico_enable_stdio_usb(PicoMite 1)
 pico_enable_stdio_uart(PicoMite 0)
-pico_set_linker_script(PicoMite ${CMAKE_CURRENT_LIST_DIR}/../memmap_default.ld)
 pico_add_extra_outputs(PicoMite)
-target_compile_options(PicoMite PRIVATE -DPICO_STDIO_USB_ENABLE_RESET_VIA_VENDOR_INTERFACE=0 -DPICO_STACK_SIZE=0x1000 -DJPKBD -DIJFONT -DNEXTDAY_SPEC)
+target_compile_options(PicoMite PRIVATE -DPICO_STDIO_USB_ENABLE_RESET_VIA_VENDOR_INTERFACE=0 -DPICO_CORE0_STACK_SIZE=0x2000 -DPICO_CORE1_STACK_SIZE=0x0 -DPICO_HEAP_SIZE=0x300)
 target_link_libraries(PicoMite
     pico_stdlib
     hardware_flash
