@@ -1,7 +1,6 @@
 Files to build the PicoMite. MMBasic running on the Raspberry Pi Pico
 
-NB: This should be built against pico-sdk version 1.3. 
-Previous versions were built against a modified sdk version 1.2. V1.3 now works out-of-the-box
+NB: This should be built against pico-sdk version 1.3. with spi.h replaced with the attached.
 
 The file layout should be:
 
@@ -15,6 +14,55 @@ Compiled version and documentation is available on https://geoffg.net/picomite.h
 
 Change list from V5.07.00
 ***********************************************************************************************************************
+PicoMite V5.07.05b13
+
+Adds support for the 480x320 IPS ILI9341 display (use code ILI9341N). 
+Modifies the port function to read all pins simultaneously. 
+Updates SDK to V1.4. 
+Updates Compiler to version 11.2.1. 
+
+PicoMite V5.07.05b11
+
+Fixes bug when using "ON KEY int" command. 
+Enables operation up to 378MHz. 
+
+V5.07.05b9. 
+
+Improved error checking for SETPIN command. Updated SPI.h in SDK to fix issue with clock (pico-sdk\src\rp2_common\hardware_spi\include\hardware\spi.h)
+
+V5.07.05b8
+
+Fixes crashing bug if edit is used after running a program with IR input. 
+Removes support for the GDEH029A1 display as this controller is now obsolete. 
+Reduces available RAM for VGA version from 108Kb to 104Kb to solve memory corruption issue. 
+Build file reverts to default.
+
+V5.07.05b7
+
+Fixed bug in PWM n,OFF requiring spurious extra parameter. 
+Fixed bug in sound command overdriving the PWM when > 2 channels are used and the volume isn't explicitly specified. 
+
+V5.07.05b6
+
+Re-engineering of PORT command to allow simultaneous update
+
+V5.07.05b5
+
+Implements SPRITE command and function in VGA version. 
+Note: the build now uses a non-standard build file to gain 4K of usable RAM
+
+
+V5.07.05b3
+
+Fixes bug in BITBANG LCD CMD and BITBANG LCD DATA. 
+
+V5.07.05b1
+
+Fixes bug in PIO READ. 
+Allows a single integer variable to be used when nbr=1 in PIO READ. 
+Implements DRAW3D command and function (VGA version only). 
+Implements FRAMEBUFFER command (VGA version only). 
+
 V5.07.04
 
 V5.07.04 Changes from V5.07.03
