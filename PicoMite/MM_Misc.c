@@ -49,21 +49,7 @@ struct s_inttbl inttbl[NBRINTERRUPTS];
 unsigned char *InterruptReturn;
 extern const char *FErrorMsg[];
 extern FRESULT FSerror;
-extern struct s_vartbl {                               // structure of the variable table
-	unsigned char name[MAXVARLEN];                       // variable's name
-	unsigned char type;                                  // its type (T_NUM, T_INT or T_STR)
-	unsigned char level;                                 // its subroutine or function level (used to track local variables)
-    unsigned char size;                         // the number of chars to allocate for each element in a string array
-    unsigned char dummy;
-    int __attribute__ ((aligned (4))) dims[MAXDIM];                     // the dimensions. it is an array if the first dimension is NOT zero
-    union u_val{
-        MMFLOAT f;                              // the value if it is a float
-        long long int i;                        // the value if it is an integer
-        MMFLOAT *fa;                            // pointer to the allocated memory if it is an array of floats
-        long long int *ia;                      // pointer to the allocated memory if it is an array of integers
-        unsigned char *s;                                // pointer to the allocated memory if it is a string
-    }  __attribute__ ((aligned (8))) val;
-} __attribute__ ((aligned (8))) s_vartbl_val;
+
 int TickPeriod[NBRSETTICKS];
 volatile int TickTimer[NBRSETTICKS];
 unsigned char *TickInt[NBRSETTICKS];
@@ -1224,8 +1210,8 @@ void cmd_time(void) {
 	if(!*cmdline) error("Syntax");
 	++cmdline;
     evaluate(cmdline, &f, &i64, &ss, &t, false);
-	if(t & T_STR ){
-	arg = getCstring(cmdline); 
+	if(t & T_STR){
+	arg = getCstring(cmdline);
 	{
 		getargs(&arg, 5, ":");								// this is a macro and must be the first executable stmt in a block
 		if(argc%2 == 0) error("Syntax");
@@ -1309,7 +1295,7 @@ void cmd_settick(void){
     int period;
     int irq=0;;
     int pause=0;
-    char s[STRINGSIZE];
+    char *s=GetTempMemory(STRINGSIZE);
     getargs(&cmdline, 5, ",");
     strcpy(s,argv[0]);
     if(!(argc == 3 || argc == 5)) error("Argument count");
@@ -1358,6 +1344,11 @@ void PO5Int(char *s1, int n1, int n2, int n3, int n4) {
 void printoptions(void){
 //	LoadOptions();
     int i=Option.DISPLAY_ORIENTATION;
+#ifdef PICOMITEVGA
+    MMPrintString("\rPicoMiteVGA MMBasic Version " VERSION "\r\n");
+#else
+    MMPrintString("\rPicoMite MMBasic Version " VERSION "\r\n");
+#endif
     if(Option.SerialConsole){
         MMPrintString("OPTION SERIAL CONSOLE COM");
         MMputchar(Option.SerialConsole+48,1);
@@ -1677,8 +1668,8 @@ void cmd_option(void) {
             SoftReset();
 		} else {
         getargs(&tp,9,",");
-        if(ExtCurrentConfig[KEYBOARD_CLOCK] != EXT_NOT_CONFIG && Option.KeyboardConfig == NO_KEYBOARD)  error("Pin % is in use",KEYBOARD_CLOCK);
-        if(ExtCurrentConfig[KEYBOARD_DATA] != EXT_NOT_CONFIG && Option.KeyboardConfig == NO_KEYBOARD)  error("Pin % is in use",KEYBOARD_DATA);
+        if(ExtCurrentConfig[KEYBOARD_CLOCK] != EXT_NOT_CONFIG && Option.KeyboardConfig == NO_KEYBOARD)  error("Pin %/| is in use",KEYBOARD_CLOCK,KEYBOARD_CLOCK);
+        if(ExtCurrentConfig[KEYBOARD_DATA] != EXT_NOT_CONFIG && Option.KeyboardConfig == NO_KEYBOARD)  error("Pin %/| is in use",KEYBOARD_DATA,KEYBOARD_DATA);
         else if(checkstring(argv[0], "US"))	Option.KeyboardConfig = CONFIG_US;
 		else if(checkstring(argv[0], "FR"))	Option.KeyboardConfig = CONFIG_FR;
 		else if(checkstring(argv[0], "GR"))	Option.KeyboardConfig = CONFIG_GR;
@@ -1786,7 +1777,7 @@ void cmd_option(void) {
                 gpio_set_dir(PinDef[HEARTBEATpin].GPno, GPIO_OUT);
                 ExtCurrentConfig[PinDef[HEARTBEATpin].pin]=EXT_HEARTBEAT;
             } else ExtCfg(HEARTBEATpin, EXT_NOT_CONFIG, 0); 
-        } else error("Pin % is reserved", HEARTBEATpin);
+        } else error("Pin %/| is reserved", HEARTBEATpin, HEARTBEATpin);
         return;
     }
     tp = checkstring(cmdline, "LCDPANEL NOCONSOLE");
@@ -1796,7 +1787,7 @@ void cmd_option(void) {
         Option.ColourCode = false;
         Option.DefaultFC = WHITE;
         Option.DefaultBC = BLACK;
-        SetFont((Option.DefaultFont = 0x01));
+        SetFont((Option.DefaultFont = (Option.DISPLAY_TYPE==COLOURVGA? (6<<4) | 1 : 0x01 )));
         Option.DefaultBrightness = 100;
         if(!CurrentLinePtr) {
             SaveOptions();
@@ -2132,12 +2123,12 @@ void cmd_option(void) {
         pin1 = getinteger(argv[0]);
         if(!code)pin1=codemap(pin1);
         if(IsInvalidPin(pin1)) error("Invalid pin");
-        if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin % is in use",pin1);
+        if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin1,pin1);
         if(!(code=codecheck(argv[2])))argv[2]+=2;
         pin2 = getinteger(argv[2]);
         if(!code)pin2=codemap(pin2);
         if(IsInvalidPin(pin2)) error("Invalid pin");
-        if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin % is in use",pin2);
+        if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin2,pin2);
         slice=checkslice(pin1,pin2);
         if((PinDef[Option.DISPLAY_BL].slice & 0x7f) == slice) error("Channel in use for backlight");
         Option.AUDIO_L=pin1;
@@ -2172,12 +2163,12 @@ void cmd_option(void) {
         pin1 = getinteger(argv[0]);
         if(!code)pin1=codemap(pin1);
         if(IsInvalidPin(pin1)) error("Invalid pin");
-        if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin % is in use",pin1);
+        if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin1,pin1);
         if(!(code=codecheck(argv[2])))argv[2]+=2;
         pin2 = getinteger(argv[2]);
         if(!code)pin2=codemap(pin2);
         if(IsInvalidPin(pin2)) error("Invalid pin");
-        if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin % is in use",pin2);
+        if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin2,pin2);
         if(PinDef[pin1].mode & I2C0SDA && PinDef[pin2].mode & I2C0SCL)channel=0;
         if(PinDef[pin1].mode & I2C1SDA && PinDef[pin2].mode & I2C1SCL)channel=1;
         if(channel==-1)error("Invalid I2C pins");
@@ -2218,22 +2209,22 @@ void cmd_option(void) {
         pin1 = getinteger(argv[0]);
         if(!code)pin1=codemap(pin1);
         if(IsInvalidPin(pin1)) error("Invalid pin");
-        if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin % is in use",pin1);
+        if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin1,pin1);
         if(!(code=codecheck(argv[2])))argv[2]+=2;
         pin2 = getinteger(argv[2]);
         if(!code)pin2=codemap(pin2);
         if(IsInvalidPin(pin2)) error("Invalid pin");
-        if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin % is in use",pin2);
+        if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin2,pin2);
         if(!(code=codecheck(argv[4])))argv[4]+=2;
         pin3 = getinteger(argv[4]);
         if(!code)pin3=codemap(pin3);
         if(IsInvalidPin(pin3)) error("Invalid pin");
-        if(ExtCurrentConfig[pin3] != EXT_NOT_CONFIG)  error("Pin % is in use",pin3);
+        if(ExtCurrentConfig[pin3] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin3,pin3);
         if(!(code=codecheck(argv[6])))argv[6]+=2;
         pin4 = getinteger(argv[6]);
-        if(!code)pin3=codemap(pin4);
+        if(!code)pin4=codemap(pin4);
         if(IsInvalidPin(pin4)) error("Invalid pin");
-        if(ExtCurrentConfig[pin4] != EXT_NOT_CONFIG)  error("Pin % is in use",pin4);
+        if(ExtCurrentConfig[pin4] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin4,pin4);
         if(pin1==pin2 || pin1==pin3 || pin1==pin4 || pin2==pin3 || pin2==pin4 || pin3==pin4)error("Pins must be unique");
         Option.INT1pin=pin1;
         Option.INT2pin=pin2;
@@ -2262,17 +2253,17 @@ void cmd_option(void) {
         pin1 = getinteger(argv[0]);
         if(!code)pin1=codemap(pin1);
         if(IsInvalidPin(pin1)) error("Invalid pin");
-        if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin % is in use",pin1);
+        if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin1,pin1);
         if(!(code=codecheck(argv[2])))argv[2]+=2;
         pin2 = getinteger(argv[2]);
         if(!code)pin2=codemap(pin2);
         if(IsInvalidPin(pin2)) error("Invalid pin");
-        if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin % is in use",pin2);
+        if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin2,pin2);
         if(!(code=codecheck(argv[4])))argv[4]+=2;
         pin3 = getinteger(argv[4]);
         if(!code)pin3=codemap(pin3);
         if(IsInvalidPin(pin3)) error("Invalid pin");
-        if(ExtCurrentConfig[pin3] != EXT_NOT_CONFIG)  error("Pin % is in use",pin3);
+        if(ExtCurrentConfig[pin3] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin3,pin3);
 		if(!(PinDef[pin1].mode & SPI0SCK && PinDef[pin2].mode & SPI0TX  && PinDef[pin3].mode & SPI0RX  ) &&
         !(PinDef[pin1].mode & SPI1SCK && PinDef[pin2].mode & SPI1TX  && PinDef[pin3].mode & SPI1RX  ))error("Not valid SPI pins");
         Option.SYSTEM_CLK=pin1;
@@ -2305,7 +2296,7 @@ void cmd_option(void) {
         pin4 = getinteger(argv[0]);
         if(!code)pin4=codemap(pin4);
         if(IsInvalidPin(pin4)) error("Invalid pin");
-        if(ExtCurrentConfig[pin4] != EXT_NOT_CONFIG)  error("Pin % is in use",pin4);
+        if(ExtCurrentConfig[pin4] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin4,pin4);
         Option.SD_CS=pin4;
         Option.SDspeed=10;
         if(argc>1){
@@ -2313,17 +2304,17 @@ void cmd_option(void) {
             pin1 = getinteger(argv[2]);
             if(!code)pin1=codemap(pin1);
             if(IsInvalidPin(pin1)) error("Invalid pin");
-            if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin % is in use",pin1);
+            if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin1,pin1);
             if(!(code=codecheck(argv[4])))argv[4]+=2;
             pin2 = getinteger(argv[4]);
             if(!code)pin2=codemap(pin2);
             if(IsInvalidPin(pin2)) error("Invalid pin");
-            if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin % is in use",pin2);
+            if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin2,pin2);
             if(!(code=codecheck(argv[6])))argv[6]+=2;
             pin3 = getinteger(argv[6]);
             if(!code)pin3=codemap(pin3);
             if(IsInvalidPin(pin3)) error("Invalid pin");
-            if(ExtCurrentConfig[pin3] != EXT_NOT_CONFIG)  error("Pin % is in use",pin3);
+            if(ExtCurrentConfig[pin3] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin3,pin3);
             Option.SD_CLK_PIN=pin1;
             Option.SD_MOSI_PIN=pin2;
             Option.SD_MISO_PIN=pin3;
@@ -2353,6 +2344,14 @@ void fun_device(void){
 #endif
     CtoM(sret);
     targ = T_STR;
+}
+
+uint32_t __get_MSP(void)
+{
+  uint32_t result;
+
+  __asm volatile ("MRS %0, msp" : "=r" (result) );
+  return(result);
 }
 
 void fun_info(void){
@@ -2465,10 +2464,22 @@ void fun_info(void){
     tp=checkstring(ep, "PINNO");
     if(tp){
         int pin;
-        char code;
-        if(!(code=codecheck(tp)))tp+=2;  
-        else ("Syntax");
-        pin = getinteger(tp);
+        MMFLOAT f;
+        long long int i64;
+        unsigned char *ss;
+        int t=0;
+        char code, *ptr;
+        char *string=GetTempMemory(STRINGSIZE);
+        if(codecheck(tp))evaluate(tp, &f, &i64, &ss, &t, false);
+	    if(t & T_STR ){
+            ptr=getCstring(tp);
+            strcpy(string,ptr);
+        } else {
+            strcpy(string,tp);
+        }
+        if(!(code=codecheck(string)))string+=2;  
+        else error("Syntax");
+        pin = getinteger(string);
         if(!code)pin=codemap(pin);
         if(IsInvalidPin(pin))error("Invalid pin");
         iret=pin;
@@ -2581,6 +2592,14 @@ void fun_info(void){
             return;
          } else if(checkstring(ep, "FONT")){
             iret=(gui_font >> 4)+1;
+            targ=T_INT;
+            return;
+	    } else if(checkstring(ep, "HEAP")){
+            iret=FreeSpaceOnHeap();
+            targ=T_INT;
+            return;
+        } else if(checkstring(ep, "STACK")){
+            iret=(int64_t)((uint32_t)__get_MSP());
             targ=T_INT;
             return;
         } else error("Syntax");

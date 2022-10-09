@@ -32,21 +32,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 #define RoundUptoInt(a)     (((a) + (32 - 1)) & (~(32 - 1)))// round up to the nearest whole integer
 void DrawFilledCircle(int x, int y, int radius, int r, int fill, int ints_per_line, uint32_t *br, MMFLOAT aspect, MMFLOAT aspect2);
 void hline(int x0, int x1, int y, int f, int ints_per_line, uint32_t *br);
-extern struct s_vartbl {                               // structure of the variable table
-	unsigned char name[MAXVARLEN];                       // variable's name
-	unsigned char type;                                  // its type (T_NUM, T_INT or T_STR)
-	unsigned char level;                                 // its subroutine or function level (used to track local variables)
-    unsigned char size;                         // the number of chars to allocate for each element in a string array
-    unsigned char dummy;
-    int __attribute__ ((aligned (4))) dims[MAXDIM];                     // the dimensions. it is an array if the first dimension is NOT zero
-    union u_val{
-        MMFLOAT f;                              // the value if it is a float
-        long long int i;                        // the value if it is an integer
-        MMFLOAT *fa;                            // pointer to the allocated memory if it is an array of floats
-        long long int *ia;                      // pointer to the allocated memory if it is an array of integers
-        unsigned char *s;                                // pointer to the allocated memory if it is a string
-    }  __attribute__ ((aligned (8))) val;
-} __attribute__ ((aligned (8))) s_vartbl_val;
+
 typedef struct _BMPDECODER
 {
         LONG lWidth;
@@ -144,6 +130,8 @@ char* COLLISIONInterrupt = NULL;
 int CollisionFound = false;
 int sprite_which_collided = -1;
 static int hideall = 0;
+#else
+    extern int InvokingCtrl;
 #endif
 void (*DrawRectangle)(int x1, int y1, int x2, int y2, int c) = (void (*)(int , int , int , int , int ))DisplayNotSet;
 void (*DrawBitmap)(int x1, int y1, int width, int height, int scale, int fc, int bc, unsigned char *bitmap) = (void (*)(int , int , int , int , int , int , int , unsigned char *))DisplayNotSet;
@@ -1060,11 +1048,13 @@ void GUIPrintString(int x, int y, int fnt, int jh, int jv, int jo, int fc, int b
         if(jv == JUSTIFY_BOTTOM) CurrentY -= (strlen(str) * GetFontWidth(fnt));
     }
     while(*str) {
-        if(*str == 0xff) {
+#ifndef PICOMITEVGA
+        if(*str == 0xff && Ctrl[InvokingCtrl].type == 10) {
 //            fc = rgb(0, 0, 255);                                // this is specially for GUI FORMATBOX
             str++;
             GUIPrintChar(fnt, bc, fc, *str++, jo);
         } else
+#endif
             GUIPrintChar(fnt, fc, bc, *str++, jo);
     }
 }
@@ -3683,7 +3673,9 @@ void cmd_blit(void) {
     unsigned char *buff = NULL;
     unsigned char *p;
     if(Option.DISPLAY_TYPE == 0) error("Display not configured");
-    if((p = checkstring(cmdline, "LOAD"))) {
+    p = checkstring(cmdline, "LOADBMP"); 
+    if(p==NULL)p = checkstring(cmdline, "LOAD");
+    if(p) {
         int fnbr;
         int xOrigin, yOrigin, xlen, ylen;
         BMPDECODER BmpDec;
@@ -3761,6 +3753,7 @@ void cmd_blit(void) {
         if(w < 1 || h < 1 || x1 < 0 || x1 + w > HRes || y1 < 0 || y1 + h > VRes ) return;
         if(blitbuff[bnbr].blitbuffptr != NULL){
             DrawBuffer(x1, y1, x1 + w - 1, y1 + h - 1, blitbuff[bnbr].blitbuffptr);
+            if(Option.Refresh)Display_Refresh();
         } else error("Buffer not in use");
     } else if((p = checkstring(cmdline, "CLOSE"))) {
         getargs(&p, 1, ",");
@@ -3823,6 +3816,7 @@ void cmd_blit(void) {
             ReadBuffer(x1, y1, x1 + w - 1, y1 + h - 1, buff);
             DrawBuffer(x2, y2, x2 + w - 1, y2 + h - 1, buff);
             FreeMemory(buff);
+            if(Option.Refresh)Display_Refresh();
             return;
         }
     }
@@ -4106,8 +4100,11 @@ void DrawBufferMono(int x1, int y1, int x2, int y2, unsigned char *p){
 	for(y=y1;y<=y2;y++){
     	for(x=x1;x<=x2;x++){
 	        c.rgbbytes[0]=*p++; 
+            if(c.rgbbytes[0]<0x40)c.rgbbytes[0]=0;
 	        c.rgbbytes[1]=*p++;
+            if(c.rgbbytes[1]<0x40)c.rgbbytes[1]=0;
 	        c.rgbbytes[2]=*p++;
+            if(c.rgbbytes[2]<0x40)c.rgbbytes[2]=0;
             c.rgbbytes[3]=0;
             loc=(y*(HRes>>3))+(x>>3);
             mask=1<<(x % 8); //get the bit position for this bit

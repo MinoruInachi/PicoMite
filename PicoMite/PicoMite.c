@@ -263,11 +263,7 @@ const char DaysInMonth[] = { 0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }
 void __not_in_flash_func(routinechecks)(void){
     static int c,when=0;
     if(++when & 7 && CurrentLinePtr) return;
-#ifdef PICOMITEVGA
-    if(Option.SerialConsole==0){
-#else
     if(tud_cdc_connected() && Option.SerialConsole==0){
-#endif
         while(( c=tud_cdc_read_char())!=-1){
             ConsoleRxBuf[ConsoleRxBufHead] = c;
             if(BreakKey && ConsoleRxBuf[ConsoleRxBufHead] == BreakKey) {// if the user wants to stop the progran
@@ -949,9 +945,8 @@ void __not_in_flash_func(CheckAbort)(void) {
     if(MMAbort) {
         WDTimer = 0;                                                // turn off the watchdog timer
         calibrate=0;
-        memset(inpbuf,0,STRINGSIZE);
         ShowCursor(false);
-        longjmp(mark, 1);                                           // jump back to the input prompt
+        cmd_end();
     }
 }
 void PRet(void){
@@ -1700,9 +1695,10 @@ int main(){
         MMPrintString("RTC not found, OPTION RTC AUTO disabled\r\n");
     }
  	*tknbuf = 0;
-     ContinuePoint = nextstmt;                               // in case the user wants to use the continue command
+    ContinuePoint = nextstmt;                               // in case the user wants to use the continue command
 	if(setjmp(mark) != 0) {
      // we got here via a long jump which means an error or CTRL-C or the program wants to exit to the command prompt
+        LoadOptions();
         ScrewUpTimer = 0;
         ProgMemory=(uint8_t *)flash_progmemory;
         ContinuePoint = nextstmt;                               // in case the user wants to use the continue command
@@ -1781,7 +1777,6 @@ int main(){
 			  q[0]=34;
 		  } else strcat(p,"\"");
 		  p[3]=' ';
-//		  PRet();MMPrintString(inpbuf);PRet();
 	  }
         tokenise(true);                                             // turn into executable code
         if (setjmp(jmprun) != 0) {
@@ -1789,7 +1784,7 @@ int main(){
             CurrentLinePtr = 0;
         }
         ExecuteProgram(tknbuf);                                     // execute the line straight away
-        memset(inpbuf,0,STRINGSIZE);
+        cmd_end();
 	}
 }
 
