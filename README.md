@@ -1,6 +1,6 @@
 Files to build the PicoMite. MMBasic running on the Raspberry Pi Pico
 
-NB: This should be built against pico-sdk version 1.4. with spi.h replaced with the attached.
+NB: This should be built against pico-sdk version 1.4. with spi.h and gpio.c replaced with the attached.
 
 The file layout should be:
 
@@ -14,7 +14,11 @@ Compiled version and documentation is available on https://geoffg.net/picomite.h
 
 Change list from V5.07.00
 ***********************************************************************************************************************
-PicoMite V5.07.05RC5
+PicoMite V5.07.05RC7
+
+Changes to PS2 handler. Other changes in preparation for future release.
+
+PicoMite V5.07.05RC6
 
 Fixed bug in LOAD IMAGE for mono displays (e.g. SSD1306I2C32). 
 Enabled BLIT and LOAD JPG for mono displays. 
