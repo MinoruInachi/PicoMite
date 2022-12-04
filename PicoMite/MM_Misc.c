@@ -1356,10 +1356,12 @@ void printoptions(void){
 #endif
     if(Option.SerialConsole){
         MMPrintString("OPTION SERIAL CONSOLE COM");
-        MMputchar(Option.SerialConsole+48,1);
+        MMputchar((Option.SerialConsole & 3)+48,1);
         MMputchar(',',1);
         MMPrintString((char *)PinDef[Option.SerialTX].pinname);MMputchar(',',1);
-        MMPrintString((char *)PinDef[Option.SerialRX].pinname);PRet();
+        MMPrintString((char *)PinDef[Option.SerialRX].pinname);
+        if(Option.SerialConsole & 4)MMPrintString((char *)",BOTH");
+        PRet();
     }
     if(Option.SYSTEM_CLK){
         PO("SYSTEM SPI");
@@ -1731,8 +1733,8 @@ void cmd_option(void) {
             return;
         } else {
             int pin,pin2,value,value2;
-            getargs(&tp,3,",");
-            if(argc!=3)error("Syntax");
+            getargs(&tp,5,",");
+            if(!(argc==3 || argc==5))error("Syntax");
             char code;
             if(!(code=codecheck(argv[0])))argv[0]+=2;
             pin = getinteger(argv[0]);
@@ -1748,6 +1750,7 @@ void cmd_option(void) {
             else error("Invalid configuration");
             if(Option.SerialTX==Option.SerialRX)error("Invalid configuration");
             Option.SerialConsole = 1; 
+            if(argc==5)Option.SerialConsole=(checkstring(argv[4],"B") ? 5: 1);
             SaveOptions(); 
             SoftReset();
             return;
@@ -1760,6 +1763,7 @@ void cmd_option(void) {
             else error("Invalid configuration");
             if(Option.SerialTX==Option.SerialRX)error("Invalid configuration");
             Option.SerialConsole = 2; 
+            if(argc==5)Option.SerialConsole=(checkstring(argv[4],"B") ? 6: 2);
             SaveOptions(); 
             SoftReset();
         }  
@@ -2548,6 +2552,11 @@ void fun_info(void){
             CtoM(sret);
             targ=T_STR;
             return;
+ 		} else if(checkstring(tp, "KEYBOARD")){
+            strcpy(sret,(char *)KBrdList[(int)Option.KeyboardConfig]);
+            CtoM(sret);
+            targ=T_STR;
+            return;
  		} else if(checkstring(tp, "EXPLICIT")){
 			if(OptionExplicit == false)strcpy(sret,"Off");
 			else strcpy(sret,"On");
@@ -2653,6 +2662,13 @@ void fun_info(void){
         return;
     } 
 #endif
+	else if(checkstring(ep, "TRACK")){
+		if(CurrentlyPlaying == P_MP3 || CurrentlyPlaying == P_FLAC || CurrentlyPlaying == P_WAV) strcpy(sret,alist[trackplaying].fn);
+		else strcpy(sret,"OFF");
+        CtoM(sret);
+        targ=T_STR;
+        return;
+    }
     else if(*ep=='v' || *ep=='V'){
         if(checkstring(ep, "VARCNT")){
             iret=(int64_t)((uint32_t)varcnt);
@@ -2673,6 +2689,7 @@ void fun_info(void){
         } else error("Syntax");
     } else error("Syntax");
 }
+
 
 void cmd_watchdog(void) {
     int i;
