@@ -146,7 +146,11 @@ void DrawTriangle(int x0, int y0, int x1, int y1, int x2, int y2, int c, int fil
 // in the case of the MX470 it is called by MX470GUI in GUI.c
 const int colours[16]={0x00,0xFF,0x4000,0x40ff,0x8000,0x80ff,0xff00,0xffff,0xff0000,0xff00FF,0xff4000,0xff40ff,0xff8000,0xff80ff,0xffff00,0xffffff};
 void initFonts(void){    
+#ifndef IJFONT
 	FontTable[0] = (unsigned char *)font1;
+#else
+	FontTable[0] = (unsigned char *)ijfont_1_4;
+#endif
 	FontTable[1] = (unsigned char *)Misc_12x20_LE;
 	#ifdef PICOMITEVGA
 	FontTable[2] = (unsigned char *)arial_bold;
