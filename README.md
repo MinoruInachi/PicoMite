@@ -1,6 +1,6 @@
 Files to build the PicoMite. MMBasic running on the Raspberry Pi Pico
 
-NB: This should be built against pico-sdk version 1.4. with spi.h and gpio.c replaced with the attached.
+NB: This should be built against pico-sdk version 1.5. with spi.h and gpio.c replaced with the attached.
 
 The file layout should be:
 
@@ -8,12 +8,71 @@ anything/pico-sdk
 
 anything/PicoMite/all source and header files
 
-The code is developed under VSCODE on W11 using GCC 11.2.1 arm-none-eabi
+The code is developed under VSCODE on W11 using GCC 12.2.1 arm-none-eabi
 
 Compiled version and documentation is available on https://geoffg.net/picomite.html
 
 Change list from V5.07.00
-***********************************************************************************************************************
+**********************************************************************************************************************
+
+PicoMite V5.07.07b28
+
+Enhancements to PLAY SOUND to remove clicks and pops. 
+Implements OPTION ESCAPE. 
+PIO ASSEMBLE now accepts &B, &O, and &H for numeric values.
+
+PicoMite V5.07.07b27
+
+Implementation of virtual display drivers. Implementation of escape sequences in strings. 
+VGA version can now disable console and change display width and height. LOAD IMAGE now supports compressed 4 bit images. 
+Implemented SAVE COMPRESSED IMAGE for 1 and 4 bit displays.
+
+PicoMite V5.07.07b25
+
+Rework of vartbl to reduce memory usage. Finalisation of colour support in 640x480 mode.
+
+PicoMite V5.07.07b22
+
+More defines to support PICOMITEWEB.
+
+PicoMite V5.07.07b19
+
+Colour editing in 640x480 resolution for PicoMiteVGA
+
+PicoMite V5.07.07b18
+Update to SDK 1.5 +lots of other changes
+
+PicoMite V5.07.07b5
+
+Bug fix to CHDIR for flash file system. 
+Fix bug in pixel drawing in PicoMite. 
+Bug fix to ON ERROR SKIP (thanks Tom). 
+
+New functions
+
+PIO(DMA RX POINTER). 
+PIO(DMA TX POINTER). 
+MM.INFO(EXISTS FILE fname$) ' see CMM2 manual for details. 
+MM.INFO(EXISTS DIR dname$) ' see CMM2 manual for details. 
+PIN(FLEVEL pio [,sm, DIR]) ' dir can be RX or TX. If specified gives the level of the specific fifo. 
+PIO (SHIFTCTRL push_threshold [,pull_threshold] [,autopush] [,autopull] [,in_shiftdir] [,out_shiftdir] [,FJOIN_RX] [,FJOIN_TX]). 
+PIO CLEAR now clears all the FIFOs for the pio specified. 
+PIO INIT and PIO START clear the specific FIFOs for the pio and sm specified. 
+
+New Commands
+
+NB: RX and TX are from the Basic code perspective. 
+PIO MAKE RING BUFFER ivar%, size
+PIO DMA_IN OFF. 
+PIO DMA_OUT OFF. 
+PIO DMA_IN pio, sm, nbr, data%() [,completioninterrupt] [,transfersize] [,loopbackcount]
+PIO DMA_OUT pio, sm, nbr, data%() [,completioninterrupt] [,transfersize] [,loopbackcount]
+PIO INTERRUPT pio, sm [,RXinterrupt] [,TXinterrupt]. 
+The PWM command is modified as follows: 
+PWM channel, frequency, [dutyA] [,dutyB] [,phase] [,deferredstart]. 
+PWM SYNC [channel0offset] [,channel1offset] .......[channel7offset]. 
+
+
 PicoMite V5.07.06
 
 See release notes

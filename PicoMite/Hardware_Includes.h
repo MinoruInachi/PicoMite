@@ -89,7 +89,7 @@ extern unsigned int _excep_peek;
 extern volatile long long int mSecTimer;
 extern volatile unsigned int PauseTimer;
 extern volatile unsigned int IntPauseTimer;
-extern volatile unsigned int Timer1, Timer2, Timer3;		                       //1000Hz decrement timer
+extern volatile unsigned int Timer1, Timer2, Timer3, Timer4;		                       //1000Hz decrement timer
 extern volatile unsigned int diskchecktimer;
 extern volatile int ds18b20Timer;
 extern volatile int CursorTimer;
@@ -123,8 +123,8 @@ extern volatile char ConsoleTxBuf[CONSOLE_TX_BUF_SIZE];
 extern volatile int ConsoleTxBufHead;
 extern volatile int ConsoleTxBufTail;
 extern datetime_t rtc_t;
-extern uint16_t tilefcols[40*30];
-extern uint16_t tilebcols[40*30];
+extern uint16_t tilefcols[];
+extern uint16_t tilebcols[];
 extern void __not_in_flash_func(QVgaCore)(void);
 extern uint32_t core1stack[64];
 extern int QVGA_CLKDIV;
@@ -180,6 +180,23 @@ extern lfs_t lfs;
 extern lfs_dir_t lfs_dir;
 extern struct lfs_info lfs_info;
 extern int FatFSFileSystem;
+extern void uSec(int us);
+extern int ytilecount;
+extern int X_TILE, Y_TILE;
+extern char id_out[];
+#ifdef PICOMITEVGA
+extern uint32_t __attribute__ ((aligned (256))) M_Foreground[16];
+extern uint32_t __attribute__ ((aligned (256))) M_Background[16];
+extern uint16_t __attribute__ ((aligned (256))) tilefcols[80*40];
+extern uint16_t __attribute__ ((aligned (256))) tilebcols[80*40];
+#endif
+#ifdef PICOMITEWEB
+	extern volatile int WIFIconnected;
+	extern volatile int scantimer;
+	extern int startupcomplete;
+	extern void ProcessWeb(void);
+	extern void WebConnect(void);
+#endif
 // console related I/O
 int __not_in_flash_func(MMInkey)(void);
 int MMgetchar(void);
@@ -279,9 +296,11 @@ extern struct tagMTRand *g_myrand;
 #define PIN_RESTART         9997                                    // reset caused by entering 0 at the PIN prompt
 #define RESTART_NOAUTORUN   9996                                    // reset required after changing the LCD or touch config
 #define RESTART_DOAUTORUN   9995                                    // reset required by OPTION SET (ie, re runs the program)
-#define uSec(a) busy_wait_us(a)
 #define KEYBOARD_CLOCK 11
 #define KEYBOARD_DATA 12
+#define ALARM_NUM 0
+#define ALARM_IRQ TIMER_IRQ_0
+
 
 /**********************************************************************************
  All command tokens tokens (eg, PRINT, FOR, etc) should be inserted in this table
@@ -342,9 +361,15 @@ extern struct tagMTRand *g_myrand;
 #include "Serial.h"
 #include "SPI-LCD.h"
 #ifndef PICOMITEVGA
+#ifndef PICOMITEWEB
+	#include "SSD1963.h"
 	#include "Touch.h"
 	#include "GUI.h"
+#endif
+#endif
+#ifdef PICOMITEWEB
 	#include "SSD1963.h"
+	#include "Touch.h"
 #endif
 #include "GPS.h"
 #include "Audio.h"

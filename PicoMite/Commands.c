@@ -28,6 +28,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 #include "MMBasic_Includes.h"
 #include "Hardware_Includes.h"
 #include "hardware/flash.h"
+#include "hardware/dma.h"
+
 #include <math.h>
 void flist(int, int, int);
 //void clearprog(void);
@@ -422,15 +424,60 @@ void ListProgram(unsigned char *p, int all) {
 
 
 void cmd_run(void) {
-	skipspace(cmdline);
+/*	skipspace(cmdline);
 	if(*cmdline && *cmdline != '\''){
 		if(!FileLoadProgram(cmdline))return;
 	}
-	ClearRuntime();
-    WatchdogSet = false;
-	PrepareProgram(true);
+	ClearRuntime();*/
+    // RUN [ filename$ ] [, cmd_args$ ]
+    unsigned char *filename = "", *cmd_args = "";
+    getargs(&cmdline, 3, ",");
+    switch (argc) {
+        case 0:
+            break;
+        case 1:
+            filename = getCstring(argv[0]);
+            break;
+        case 2:
+            cmd_args = getCstring(argv[1]);
+            break;
+        default:
+            filename = getCstring(argv[0]);
+            cmd_args = getCstring(argv[2]);
+            break;
+    }
+
+    // The memory allocated by getCstring() is not preserved across
+    // a call to FileLoadProgram() so we need to cache 'filename' and
+    // 'cmd_args' on the stack.
+    unsigned char buf[MAXSTRLEN + 1];
+    if (snprintf(buf, MAXSTRLEN + 1, "\"%s\",%s", filename, cmd_args) > MAXSTRLEN) {
+        error("RUN command line too long");
+    }
+    unsigned char *pcmd_args = buf + strlen(filename) + 2;
+
+    if (*filename && !FileLoadProgram(buf)) return;
+
+    ClearRuntime();
+	WatchdogSet = false;
+//	PrepareProgram(true);
+    PrepareProgram(true);
+
+    // Create a global constant MM.CMDLINE$ containing 'cmd_args'.
+    void *ptr = findvar("MM.CMDLINE$", V_FIND | V_DIM_VAR | T_CONST);
+    CtoM(pcmd_args);
+    memcpy(ptr, pcmd_args + 1, *pcmd_args);
+
     IgnorePIN = false;
     if(*ProgMemory != T_NEWLINE) return;                             // no program to run
+#ifdef PICOMITEWEB
+    void *v;
+    v = findvar("MM.TOPIC$", T_STR | V_NOFIND_NULL);    // create the variable
+    if(v==NULL)findvar("MM.TOPIC$", V_FIND | V_DIM_VAR | T_CONST);
+    v = findvar("MM.MESSAGE$", T_STR | V_NOFIND_NULL);    // create the variable
+    if(v==NULL)findvar("MM.MESSAGE$", V_FIND | V_DIM_VAR | T_CONST);
+	cleanserver();
+#endif
 	nextstmt = ProgMemory;
 }
 
@@ -516,7 +563,11 @@ void cmd_clear(void) {
 }
 
 
+#ifdef PICOMITEWEB
+void cmd_goto(void) {
+#else
 void __no_inline_not_in_flash_func(cmd_goto)(void) {
+#endif
 	if(isnamestart(*cmdline))
 		nextstmt = findlabel(cmdline);								// must be a label
 	else
@@ -526,7 +577,11 @@ void __no_inline_not_in_flash_func(cmd_goto)(void) {
 
 
 
+#ifdef PICOMITEWEB
+void cmd_if(void) {
+#else
 void __not_in_flash_func(cmd_if)(void) {
+#endif
  	int r, i, testgoto, testelseif;
 	unsigned char ss[3];														// this will be used to split up the argument line
 	unsigned char *p, *tp;
@@ -670,7 +725,11 @@ retest_an_if:
 
 
 
+#ifdef PICOMITEWEB
+void cmd_else(void) {
+#else
 void __not_in_flash_func(cmd_else)(void) {
+#endif
 	int i;
 	unsigned char *p, *tp;
 
@@ -702,6 +761,15 @@ void __not_in_flash_func(cmd_else)(void) {
 
 
 void cmd_end(void) {
+	if(dma_channel_is_busy(dma_rx_chan))
+	{
+		dma_channel_abort(dma_rx_chan);
+//		dma_channel_unclaim(dma_rx_chan);
+	}
+    if(dma_channel_is_busy(dma_tx_chan)){
+		dma_channel_abort(dma_tx_chan);
+//		dma_channel_unclaim(dma_tx_chan);
+	}
 	for(int i=0; i< NBRSETTICKS;i++){
 		TickPeriod[i]=0;
 		TickTimer[i]=0;
@@ -713,10 +781,10 @@ void cmd_end(void) {
     memset(inpbuf,0,STRINGSIZE);
 	CloseAudio(1);
 #ifdef PICOMITEVGA
-	WriteBuf=&AllMemory[HEAP_MEMORY_SIZE + MAXVARS * sizeof(struct s_vartbl) + 2048];
-	DisplayBuf=&AllMemory[HEAP_MEMORY_SIZE + MAXVARS * sizeof(struct s_vartbl) + 2048];
-	LayerBuf=&AllMemory[HEAP_MEMORY_SIZE + MAXVARS * sizeof(struct s_vartbl) + 2048];
-	FrameBuf=&AllMemory[HEAP_MEMORY_SIZE + MAXVARS * sizeof(struct s_vartbl) + 2048];
+	WriteBuf=FRAMEBUFFER;
+	DisplayBuf=FRAMEBUFFER;
+	LayerBuf=FRAMEBUFFER;
+	FrameBuf=FRAMEBUFFER;
 #endif
 
 	if(g_myrand)FreeMemory((void *)g_myrand);
@@ -968,7 +1036,11 @@ void cmd_trace(void) {
 
 
 // FOR command
+#ifdef PICOMITEWEB
+void cmd_for(void) {
+#else
 void __not_in_flash_func(cmd_for)(void) {
+#endif
 	int i, t, vlen, test;
 	unsigned char ss[4];														// this will be used to split up the argument line
 	unsigned char *p, *tp, *xp;
@@ -1084,7 +1156,11 @@ void __not_in_flash_func(cmd_for)(void) {
 
 
 
+#ifdef PICOMITEWEB
+void cmd_next(void) {
+#else
 void __not_in_flash_func(cmd_next)(void) {
+#endif
 	int i, vindex, test;
 	void *vtbl[MAXFORLOOPS];
 	int vcnt;
@@ -1164,7 +1240,11 @@ void __not_in_flash_func(cmd_next)(void) {
 
 
 
+#ifdef PICOMITEWEB
+void cmd_do(void) {
+#else
 void __not_in_flash_func(cmd_do)(void) {
+#endif
 	int i;
 	unsigned char *p, *tp, *evalp;
     if(cmdtoken==cmdWHILE)error("Unknown command");
@@ -1234,7 +1314,11 @@ void __not_in_flash_func(cmd_do)(void) {
 
 
 
+#ifdef PICOMITEWEB
+void cmd_loop(void) {
+#else
 void __not_in_flash_func(cmd_loop)(void) {
+#endif
     unsigned char *p;
 	int tst = 0;                                                    // initialise tst to stop the compiler from complaining
 	int i;
@@ -1352,17 +1436,19 @@ void cmd_subfun(void) {
 }
 
 void cmd_gosub(void) {
-	if(gosubindex >= MAXGOSUB) error("Too many nested GOSUB");
-    errorstack[gosubindex] = CurrentLinePtr;
-	gosubstack[gosubindex++] = nextstmt;
-	LocalIndex++;
-	if(isnamestart(*cmdline))
-		nextstmt = findlabel(cmdline);								// must be a label
-	else
-		nextstmt = findline(getinteger(cmdline), true);				// try for a line number
-	CurrentLinePtr = nextstmt;
-}
+   if(gosubindex >= MAXGOSUB) error("Too many nested GOSUB");
+   char *return_to = nextstmt;
+   if(isnamestart(*cmdline))
+       nextstmt = findlabel(cmdline);
+   else
+       nextstmt = findline(getinteger(cmdline), true);
+   IgnorePIN = false;
 
+   errorstack[gosubindex] = CurrentLinePtr;
+   gosubstack[gosubindex++] = return_to;
+   LocalIndex++;
+   CurrentLinePtr = nextstmt;
+}
 
 void cmd_mid(void){
 	unsigned char *p;
@@ -1512,8 +1598,78 @@ search_again:
             if(vtype[vidx] & T_STR) {
                 char *p1, *p2;
                 if(*argv[NextData] == '"') {                               // if quoted string
-                    for(len = 0, p1 = vtbl[vidx], p2 = argv[NextData] + 1; *p2 && *p2 != '"'; len++, p1++, p2++) {
-                       *p1 = *p2;                                   // copy up to the quote
+                  	int toggle=0;
+                    for(len = 0, p1 = vtbl[vidx], p2 = argv[NextData] + 1; *p2 && *p2 != '"'; len++) {
+                    	if(*p2=='\\' && p2[1]!='"' && OptionEscape)toggle^=1;
+	                    if(toggle){
+	                        if(*p2=='\\' && isdigit(p2[1]) && isdigit(p2[2]) && isdigit(p2[3])){
+	                            p2++;
+	                            i=(*p2++)-48;
+	                            i*=10;
+	                            i+=(*p2++)-48;
+	                            i*=10;
+	                            i+=(*p2++)-48;
+	                            *p1++=i;
+	                        } else {
+	                            p2++;
+	                            switch(*p2){
+	                                case '\\':
+	                                    *p1++='\\';
+	                                    p2++;
+	                                    break;
+	                                case 'a':
+	                                    *p1++='\a';
+	                                    p2++;
+	                                    break;
+	                                case 'b':
+	                                    *p1++='\b';
+	                                    p2++;
+	                                    break;
+	                                case 'e':
+	                                    *p1++='\e';
+	                                    p2++;
+	                                    break;
+	                                case 'f':
+	                                    *p1++='\f';
+	                                    p2++;
+	                                    break;
+	                                case 'n':
+	                                    *p1++='\n';
+	                                    p2++;
+	                                    break;
+	                                case 'q':
+	                                    *p1++='\"';
+	                                    p2++;
+	                                    break;
+	                                case 'r':
+	                                    *p1++='\r';
+	                                    p2++;
+	                                    break;
+	                                case 't':
+	                                    *p1++='\t';
+	                                    p2++;
+	                                    break;
+	                                case 'v':
+	                                    *p1++='\v';
+	                                    p2++;
+	                                    break;
+	                                case '&':
+	                                    p2++;
+	                                    if(isxdigit(*p2) && isxdigit(p2[1])){
+	                                        i=0;
+	                                        i = (i << 4) | ((mytoupper(*p2) >= 'A') ? mytoupper(*p2) - 'A' + 10 : *p2 - '0');
+	                                        p++;
+	                                        i = (i << 4) | ((mytoupper(*p2) >= 'A') ? mytoupper(*p2) - 'A' + 10 : *p2 - '0');
+	                                        p2++;
+	                                        *p1++=i;
+	                                    } else *p1++='x';
+	                                    break;
+	                                default:
+	                                    *p1++=*p2++;
+	                            }
+	                        }
+	                        toggle=0;
+	                    } else *p1++ = *p2++;
                     }
                 } else {                                            // else if not quoted
                     for(len = 0, p1 = vtbl[vidx], p2 = argv[NextData]; *p2 && *p2 != '\'' ; len++, p1++, p2++) {

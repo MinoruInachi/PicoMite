@@ -53,6 +53,7 @@ void cmd_xmodem(void) {
     if(*cmdline == 0 || *cmdline == '\'') {
         // no file name, so this is a transfer to/from program memory
         if(CurrentLinePtr) error("Invalid in a program");
+        if(Option.DISPLAY_TYPE>=VIRTUAL && WriteBuf)FreeMemorySafe((void **)&WriteBuf);
         if(rcv)ClearProgram();                                             // we need all the RAM
         else ClearVars(0);
         buf = GetTempMemory(EDIT_BUFFER_SIZE);
@@ -158,7 +159,11 @@ static int check(const unsigned char *buf, int sz)
 
 static void flushinput(void)
 {
-  while (_inbyte(((DLY_1S)*3)>>1) >= 0);
+  while (_inbyte(((DLY_1S)*3)>>1) >= 0)
+#ifdef PICOMITEWEB
+  ProcessWeb()
+#endif
+  ;
 }
 
 
@@ -192,7 +197,7 @@ void xmodemReceive(char *sp, int maxbytes, int fnbr, int crunch) {
                     return;                                         // no more data
                 case CAN:
                     flushinput();
-                    MMputchar(ACK,1);;
+                    MMputchar(ACK,1);
                     error("Cancelled by remote");
                     break;
                 default:

@@ -44,7 +44,7 @@ extern const uint8_t *flash_option_contents;
 extern const uint8_t *SavedVarsFlash;
 extern const uint8_t *flash_progmemory;
 extern void routinechecks(void);
-struct option_s Option;
+struct option_s __attribute__ ((aligned (256))) Option;
 int dirflags;
 int GPSfnbr = 0;
 int lfs_FileFnbr=0;
@@ -127,7 +127,7 @@ int FatFSFileSystemSave=0;
 /******************************************************************************************
 Text for the file related error messages reported by MMBasic
 ******************************************************************************************/
-const char *FErrorMsg[] = {"",
+const char* const FErrorMsg[] = {"",
                            "A hard error occurred in the low level disk I/O layer",
                            "Assertion failed",
                            "SD Card not found",
@@ -148,7 +148,7 @@ const char *FErrorMsg[] = {"",
                            "Number of open files > FF_FS_LOCK",
                            "Given parameter is invalid",
                            "SD card not present"};
-const char *LFSErrorMsg[]={
+const char* const LFSErrorMsg[]= {
                             "",
                             "",
                             "Could not find the file",
@@ -340,7 +340,7 @@ int __not_in_flash_func(fs_flash_sync)(const struct lfs_config *c)
     return 0;
 }
 void cmd_disk(void){
-    char *p=getCstring(cmdline);
+    char *p=getFstring(cmdline);
     char *b=GetTempMemory(STRINGSIZE);
     for(int i=0;i<strlen(p);i++)b[i]=toupper(p[i]);
     if(strcmp(b, "A:/FORMAT")==0)  { 
@@ -394,7 +394,7 @@ void cmd_flash(void)
         disable_interrupts();
         flash_range_erase(j, MAX_PROG_SIZE);
         enable_interrupts();
-        j = (Option.PROG_FLASH_SIZE >> 2);
+        j = (MAX_PROG_SIZE >> 2);
         uSec(250000);
         int *pp = (int *)(flash_target_contents + (i - 1) * MAX_PROG_SIZE);
         while (j--)
@@ -437,7 +437,7 @@ void cmd_flash(void)
             for (i = 1; i <= MAXFLASHSLOTS; i++)
             {
                 k = 0;
-                j = Option.PROG_FLASH_SIZE >> 2;
+                j = MAX_PROG_SIZE >> 2;
                 pp = (int *)(flash_target_contents + (i - 1) * MAX_PROG_SIZE);
                 while (j--)
                     if (*pp++ != 0xFFFFFFFF)
@@ -482,7 +482,7 @@ void cmd_flash(void)
         disable_interrupts();
         flash_range_erase(j, MAX_PROG_SIZE);
         enable_interrupts();
-        j = (Option.PROG_FLASH_SIZE >> 2);
+        j = (MAX_PROG_SIZE >> 2);
         uSec(250000);
         int *pp = (int *)(flash_target_contents + (i - 1) * MAX_PROG_SIZE);
         while (j--)
@@ -505,11 +505,11 @@ void cmd_flash(void)
     {
         if (CurrentLinePtr)
             error("Invalid in program");
-        int j = (Option.PROG_FLASH_SIZE >> 2), i = getint(p, 1, MAXFLASHSLOTS);
+        int j = (MAX_PROG_SIZE>> 2), i = getint(p, 1, MAXFLASHSLOTS);
         disable_interrupts();
         flash_range_erase(PROGSTART, MAX_PROG_SIZE);
         enable_interrupts();
-        j = (Option.PROG_FLASH_SIZE >> 2);
+        j = (MAX_PROG_SIZE >> 2);
         uSec(250000);
         int *pp = (int *)flash_progmemory;
         while (j--)
@@ -605,7 +605,7 @@ void LoadImage(unsigned char *p)
     if (!InitSDCard())
         return;
 
-    p = getCstring(argv[0]); // get the file name
+    p = getFstring(argv[0]); // get the file name
 
     xOrigin = yOrigin = 0;
     if (argc >= 3)
@@ -679,7 +679,7 @@ void LoadJPGImage(unsigned char *p)
     if (!InitSDCard())
         return;
 
-    p = getCstring(argv[0]); // get the file name
+    p = getFstring(argv[0]); // get the file name
 
     xOrigin = yOrigin = 0;
     if (argc >= 3)
@@ -872,13 +872,10 @@ void fun_dir(void)
         memset(&djd, 0, sizeof(DIR));
         memset(&fnod, 0, sizeof(FILINFO));
         // this must be the first call eg:  DIR$("*.*", FILE)
-        p = getCstring(argv[0]);
+        p = getFstring(argv[0]);
         char fullfilename[FF_MAX_LFN]={0};
         getfullfilename(p,fullfilename);
         FSsave=FatFSFileSystem;
-        for (int j = 0; j < strlen(fullfilename); j++)
-            if (fullfilename[j] == '\\')
-                fullfilename[j] = '/'; // allow backslash for the DOS oldies
         int i = strlen(fullfilename) - 1;
         while (i > 1 && !(fullfilename[i] == '/')) i--;
         if(i>1){
@@ -981,7 +978,7 @@ void cmd_mkdir(void)
     char *p;
     int i;
     char q[FF_MAX_LFN]={0};
-    p = getCstring(cmdline);                                        // get the directory name and convert to a standard C string
+    p = getFstring(cmdline);                                        // get the directory name and convert to a standard C string
     if(drivecheck(p,&i)!=FatFSFileSystem+1) error("Only valid on current drive");
     getfullpath(p,q);
     if(FatFSFileSystem){
@@ -1000,7 +997,7 @@ void cmd_rmdir(void)
     char *p;
     int i;
     char q[FF_MAX_LFN]={0};
-    p = getCstring(cmdline);                                        // get the directory name and convert to a standard C string
+    p = getFstring(cmdline);                                        // get the directory name and convert to a standard C string
     if(drivecheck(p,&i)!=FatFSFileSystem+1) error("Only valid on current drive");
     getfullpath(p,q);
     if(FatFSFileSystem){
@@ -1018,9 +1015,8 @@ void cmd_chdir(void){
 	int i;
     char *p;
     char rp[STRINGSIZE],oldfilepath[STRINGSIZE];
-    p = strlwr(getCstring(cmdline));  // get the directory name and convert to a standard C string
+    p = getFstring(cmdline);  // get the directory name and convert to a standard C string
     if(drivecheck(p,&i)!=FatFSFileSystem+1) error("Only valid on current drive");
-    for(i=0;i<strlen(p);i++)if(p[i]=='\\')p[i]='/';  //allow backslash for the DOS oldies
     if(strcmp(p,".")==0)return; //nothing to do
     if(strlen(p)==0)return;//nothing to do
     strcpy(oldfilepath,filepath[FatFSFileSystem]); //save the path in case the change of directory fails
@@ -1050,6 +1046,7 @@ void cmd_chdir(void){
 //    MMPrintString(filepath[FatFSFileSystem]);
 	if(FatFSFileSystem)FSerror = f_chdir(&filepath[FatFSFileSystem][2]); //finally change directory always using an absolute pathname
     else {
+//        MMPrintString(&filepath[FatFSFileSystem][3]);PRet();
         FSerror=lfs_dir_open(&lfs, &lfs_dir, &filepath[FatFSFileSystem][3]);
         if(!FSerror)lfs_dir_close(&lfs, &lfs_dir);
     }
@@ -1068,14 +1065,167 @@ void fun_cwd(void)
 void cmd_kill(void)
 {
     char q[FF_MAX_LFN]={0};
-    char *p = getCstring(cmdline);
-    getfullfilepath(p,q);
-    if(!FatFSFileSystem){
-        FSerror=lfs_remove(&lfs, q);	ErrorCheck(0);
-    } else {
-        if (!InitSDCard()) return;
-        FSerror = f_unlink(q);
+    getargs(&cmdline,3,",");
+    char *tp = getFstring(argv[0]);
+    if(strchr(tp,'*') || strchr(tp,'?')){
+        char *fromfile;
+        char fromdir[FF_MAX_LFN]={0};
+        int fromfilesystem;
+        char *in=GetTempMemory(STRINGSIZE);
+        int localsave=FatFSFileSystem;
+        int all=0;
+        int waste=0, t=FatFSFileSystem+1;
+        t = drivecheck(tp,&waste);
+        tp+=waste;
+        tp[0]='"';
+        FatFSFileSystem=t-1;
+        int i,j;
+        int fcnt, sortorder = 0;
+        char pp[FF_MAX_LFN] = {0};
+        char q[FF_MAX_LFN] = {0};
+        DIR djd;
+        FILINFO fnod;
+        memset(&djd, 0, sizeof(DIR));
+        memset(&fnod, 0, sizeof(FILINFO));
+        char *p = getFstring(argv[0]);
+        i = strlen(p) - 1;
+        while (i > 0 && !(p[i] == '/'))
+            i--;
+        if (i > 0)
+        {
+            memcpy(q, p, i);
+            if (q[1] == ':')
+                q[0] = '0';
+            i++;
+        }
+        strcpy(pp, &p[i]);
+        if ((pp[0] == '/') && i == 0)
+        {
+            strcpy(q, &pp[1]);
+            strcpy(pp, q);
+            strcpy(q, "0:/");
+        }
+        if (pp[0] == 0)
+            strcpy(pp, "*");
+        if (CurrentLinePtr)
+            error("Invalid in a program");
+        FatFSFileSystem=t-1;
+        if (!InitSDCard())
+            error((char *)FErrorMsg[20]); // setup the SD card
+        FatFSFileSystem=t-1;
+        fullpath(q);
+        if(!(ExistsDir(fullpathname[FatFSFileSystem],fromdir,&fromfilesystem))){
+            FatFSFileSystem=localsave;
+            error("$ not a directory",fromdir);
+        }
+        if(argc==3 && checkstring(argv[2],"ALL")){
+            all=1;
+            MMPrintString("Deleting ");MMPrintString(pp);MMPrintString(" from ");
+            MMPrintString(fromfilesystem==1 ? "B:" : "A:"); MMPrintString(fromdir);
+            MMPrintString("\r\nAre you sure ? (Y/N) ");
+            while(1){
+                i=toupper(MMInkey());
+                if(i=='Y' || i=='N')putConsole(i,1);
+                if(i=='Y')break;
+                if(i=='N'){
+                    PRet();
+                    FatFSFileSystem=localsave;
+                    return;     
+                }
+            }
+            PRet();
+        }
+        if(fromfilesystem==0) FSerror=lfs_dir_open(&lfs, &lfs_dir, fromdir);
+        else FSerror = f_findfirst(&djd, &fnod, fromdir, pp);
         ErrorCheck(0);
+        
+
+        if(fromfilesystem){
+            while (FSerror == FR_OK && fnod.fname[0])
+            {
+                if (!(fnod.fattrib & (AM_SYS | AM_HID | AM_DIR)))
+                {
+                    // add a prefix to each line so that directories will sort ahead of files
+                    // and concatenate the filename found
+                    MMPrintString("Deleting ");
+                    MMPrintString(fnod.fname);
+                    if(!all) {
+                        MMPrintString(" ? (Y/N) ");
+                        while(1){
+                            i=toupper(MMInkey());
+                            if(i=='Y' || i=='N'){
+                                putConsole(i,1);
+                                break;
+                            }
+                        }
+                    }
+                    PRet();
+                    if(i=='Y' || all){
+                        strcpy(in,fromdir);
+                        if(in[strlen(in)-1]!='/')strcat(in,"/");
+                        strcat(in,fnod.fname);
+                        FSerror = f_unlink(in);
+                        ErrorCheck(0);
+                        }
+                }
+            FSerror = f_findnext(&djd, &fnod);
+            } 
+        } else {
+            while(1){
+                int found=0;
+                FSerror=lfs_dir_read(&lfs, &lfs_dir, &lfs_info);
+                if(FSerror==0)break;
+                if(FSerror<0)ErrorCheck(0);
+                if (lfs_info.type==LFS_TYPE_DIR && pattern_matching(pp, lfs_info.name, 0, 0))
+                {
+                    continue;
+                }
+                else if (lfs_info.type==LFS_TYPE_REG && pattern_matching(pp, lfs_info.name, 0, 0))
+                {
+                    found=1;
+                }
+                if(found){
+                    // and concatenate the filename found
+                    MMPrintString("Deleting ");
+                    MMPrintString(lfs_info.name);
+                    if(!all){
+                        MMPrintString(" ? (Y/N) ");
+                        while(1){
+                            i=toupper(MMInkey());
+                            if(i=='Y' || i=='N'){
+                                putConsole(i,1);
+                                break;
+                            }
+                        }
+                    }
+                    PRet();
+                    if(i=='Y' || all){
+                        strcpy(in,fromdir);
+                        if(in[strlen(in)-1]!='/')strcat(in,"/");
+                        strcat(in,lfs_info.name);
+                        FSerror=lfs_remove(&lfs, in);	ErrorCheck(0);
+                    }
+                }
+            }
+        }
+        if(fromfilesystem) f_closedir(&djd);
+        else lfs_dir_close(&lfs, &lfs_dir);
+        FatFSFileSystem=FatFSFileSystemSave;
+    } else {
+        int localsave=FatFSFileSystem;
+        int waste=0, t=FatFSFileSystem+1;
+        t = drivecheck(tp,&waste);
+        tp+=waste;
+        FatFSFileSystem=t-1;
+        getfullfilepath(tp,q);
+        if(!FatFSFileSystem){
+            FSerror=lfs_remove(&lfs, q);	ErrorCheck(0);
+        } else {
+            if (!InitSDCard()) return;
+            FSerror = f_unlink(q);
+            ErrorCheck(0);
+        }
+        FatFSFileSystem=FatFSFileSystemSave;
     }
 }
 
@@ -1131,10 +1281,10 @@ void cmd_name(void)
     char qnew[FF_MAX_LFN]={0};
     getargs(&cmdline, 3, ss);                                   // getargs macro must be the first executable stmt in a block
     if(argc != 3) error("Syntax");
-    old = getCstring(argv[0]);                                  // get the old name
+    old = getFstring(argv[0]);                                  // get the old name
     if(drivecheck(old,&i)!=FatFSFileSystem+1) error("Only valid on current drive");
     getfullfilepath(old,qold);
-    new = getCstring(argv[2]);                                  // get the new name
+    new = getFstring(argv[2]);                                  // get the new name
     if(drivecheck(new,&i)!=FatFSFileSystem+1) error("Only valid on current drive");
     getfullfilepath(new,qnew);
     if(!FatFSFileSystem){
@@ -1152,13 +1302,290 @@ void cmd_name(void)
 void cmd_save(void)
 {
     int fnbr;
-    unsigned char *pp, *flinebuf, *p; // get the file name and change to the directory
+    unsigned char *pp, *flinebuf, *outbuf, *p; // get the file name and change to the directory
     int maxH = VRes;
     int maxW = HRes;
     if (!InitSDCard()) return;
     fnbr = FindFreeFileNbr();
+    if ((p = checkstring(cmdline, "COMPRESSED IMAGE")) != NULL){
+        if(!(ReadBuffer==ReadBufferColour || ReadBuffer==ReadBufferMono))error("Invalid for this display");
+        unsigned int nbr;
+        int i, x, y, w, h, filesize;
+        union colourmap
+        {
+        char rgbbytes[4];
+        unsigned int rgb;
+        } c;
+        unsigned char fcolour;
+        unsigned char bmpfileheader[14] = {'B', 'M', 0, 0, 0, 0, 0, 0, 0, 0, 0x76, 0, 0, 0};
+        unsigned char bmpinfoheader[40] = {40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 4, 0,
+        2,0,0,0,0,0,0,0,0x13,0xb,0,0,0x13,0xb,0,0,
+        16,0,0,0,16,0,0,0
+        };
+        unsigned char bmpcolourpallette[16*4]={
+            0,0,0,0,
+            0,0,255,0,
+            0,64,0,0,
+            0,64,255,0,
+            0,128,0,0,
+            0,128,255,0,
+            0,255,0,0,
+            0,255,255,0,
+            255,0,0,0,
+            255,0,255,0,
+            255,64,0,0,
+            255,64,255,0,
+            255,128,0,0,
+            255,128,255,0,
+            255,255,0,0,
+            255,255,255,0
+        };
+        
+        unsigned char bmppad[3] = {0, 0, 0};
+        getargs(&p, 9, ",");
+        if (!InitSDCard())
+            return;
+        if ((void *)ReadBuffer == (void *)DisplayNotSet)
+            error("SAVE IMAGE not available on this display");
+        pp = getFstring(argv[0]);
+        if (argc != 1 && argc != 9)
+            error("Syntax");
+        if (strchr(pp, '.') == NULL)
+            strcat(pp, ".bmp");
+        if (!BasicFileOpen(pp, fnbr, FA_WRITE | FA_CREATE_ALWAYS))
+            return;
+        if (argc == 1)
+        {
+            x = 0;
+            y = 0;
+            h = maxH;
+            w = maxW;
+        }
+        else
+        {
+            x = getint(argv[2], 0, maxW - 1);
+            y = getint(argv[4], 0, maxH - 1);
+            w = getint(argv[6], 1, maxW - x);
+            h = getint(argv[8], 1, maxH - y);
+        }
+        filesize = 54 + 16* 4 + w * h / 2;
+        bmpfileheader[2] = (unsigned char)(filesize);
+        bmpfileheader[3] = (unsigned char)(filesize >> 8);
+        bmpfileheader[4] = (unsigned char)(filesize >> 16);
+        bmpfileheader[5] = (unsigned char)(filesize >> 24);
+
+        bmpinfoheader[4] = (unsigned char)(w);
+        bmpinfoheader[5] = (unsigned char)(w >> 8);
+        bmpinfoheader[6] = (unsigned char)(w >> 16);
+        bmpinfoheader[7] = (unsigned char)(w >> 24);
+        bmpinfoheader[8] = (unsigned char)(h);
+        bmpinfoheader[9] = (unsigned char)(h >> 8);
+        bmpinfoheader[10] = (unsigned char)(h >> 16);
+        bmpinfoheader[11] = (unsigned char)(h >> 24);
+        bmpinfoheader[20] = (unsigned char)(h*w/2);
+        bmpinfoheader[21] = (unsigned char)((h*w/2) >> 8);
+        bmpinfoheader[22] = (unsigned char)((h*w/2) >> 16);
+        bmpinfoheader[23] = (unsigned char)((h*w/2) >> 24);
+
+        if(filesource[fnbr]==FATFSFILE) {
+            f_write(FileTable[fnbr].fptr, bmpfileheader, 14, &nbr);
+            f_write(FileTable[fnbr].fptr, bmpinfoheader, 40, &nbr);
+            f_write(FileTable[fnbr].fptr, bmpcolourpallette, 64, &nbr);
+        } else {
+            FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, bmpfileheader, 14); 
+            if(FSerror>0)FSerror=0;
+            ErrorCheck(fnbr);
+            FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, bmpinfoheader, 40); 
+            if(FSerror>0)FSerror=0;
+            FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, bmpcolourpallette, 64); 
+            if(FSerror>0)FSerror=0;
+            ErrorCheck(fnbr);
+        }
+        flinebuf = GetTempMemory(maxW * 4);
+        outbuf=GetTempMemory(maxW/2);
+        char *foutbuf=GetTempMemory(maxW);
+        for (i = y + h - 1; i >= y; i--)
+        {
+            ReadBuffer(x, i, x + w - 1, i, flinebuf);
+            p=flinebuf;
+            pp=outbuf;
+            for(int k=0;k<w;k++){
+                c.rgbbytes[2]=*p++; //this order swaps the bytes to match the .BMP file
+                c.rgbbytes[1]=*p++;
+                c.rgbbytes[0]=*p++;
+                fcolour = ((c.rgb & 0x800000)>> 20) | ((c.rgb & 0xC000)>>13) | ((c.rgb & 0x80)>>7);
+                if(k & 1){
+                    *pp |=fcolour;
+                    pp++;
+                } else {
+                    *pp = fcolour<<4;
+                }
+            }
+            unsigned char *ppp=foutbuf;
+            unsigned char *q=outbuf;
+            int count=0;
+            int k=w;
+            while(k){
+                ppp[0]=2;ppp[1]=*q++;
+                count+=2;
+                k-=2;
+                while(*q==ppp[1] && ppp[0]<254 && k){
+                    ppp[0]+=2;
+                    q++;
+                    k-=2;
+                }
+                ppp+=2;
+            }
+            *ppp++=0;*ppp++=0;count+=2;
+            if(filesource[fnbr]==FATFSFILE) f_write(FileTable[fnbr].fptr, foutbuf, count, &nbr);
+            else {
+                    FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, foutbuf, count); 
+            }
+            if(FSerror>0)FSerror=0;
+            ErrorCheck(fnbr);
+        }
+        foutbuf[0]=0;foutbuf[1]=1;
+        if(filesource[fnbr]==FATFSFILE) f_write(FileTable[fnbr].fptr, foutbuf, 2, &nbr);
+        else {
+                FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, foutbuf, 2); 
+        }
+        if(FSerror>0)FSerror=0;
+        ErrorCheck(fnbr);
+        FileClose(fnbr);
+        return;
+    }
     if ((p = checkstring(cmdline, "IMAGE")) != NULL)
     {
+        if(ReadBuffer==ReadBufferColour || ReadBuffer==ReadBufferMono){
+	        unsigned int nbr;
+	        int i, x, y, w, h, filesize;
+	        union colourmap
+	        {
+	        char rgbbytes[4];
+	        unsigned int rgb;
+	        } c;
+	        unsigned char fcolour;
+	        unsigned char bmpfileheader[14] = {'B', 'M', 0, 0, 0, 0, 0, 0, 0, 0, 0x76, 0, 0, 0};
+	        unsigned char bmpinfoheader[40] = {40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 4, 0,
+	        0,0,0,0,0,0,0,0,0x13,0xb,0,0,0x13,0xb,0,0,
+	        16,0,0,0,16,0,0,0
+	        };
+	        unsigned char bmpcolourpallette[16*4]={
+	            0,0,0,0,
+	            0,0,255,0,
+	            0,64,0,0,
+	            0,64,255,0,
+	            0,128,0,0,
+	            0,128,255,0,
+	            0,255,0,0,
+	            0,255,255,0,
+	            255,0,0,0,
+	            255,0,255,0,
+	            255,64,0,0,
+	            255,64,255,0,
+	            255,128,0,0,
+	            255,128,255,0,
+	            255,255,0,0,
+	            255,255,255,0
+	        };
+	        
+	        unsigned char bmppad[3] = {0, 0, 0};
+	        getargs(&p, 9, ",");
+	        if (!InitSDCard())
+	            return;
+	        if ((void *)ReadBuffer == (void *)DisplayNotSet)
+	            error("SAVE IMAGE not available on this display");
+	        pp = getFstring(argv[0]);
+	        if (argc != 1 && argc != 9)
+	            error("Syntax");
+	        if (strchr(pp, '.') == NULL)
+	            strcat(pp, ".bmp");
+	        if (!BasicFileOpen(pp, fnbr, FA_WRITE | FA_CREATE_ALWAYS))
+	            return;
+	        if (argc == 1)
+	        {
+	            x = 0;
+	            y = 0;
+	            h = maxH;
+	            w = maxW;
+	        }
+	        else
+	        {
+	            x = getint(argv[2], 0, maxW - 1);
+	            y = getint(argv[4], 0, maxH - 1);
+	            w = getint(argv[6], 1, maxW - x);
+	            h = getint(argv[8], 1, maxH - y);
+	        }
+	        filesize = 54 + 16* 4 + w * h / 2;
+	        bmpfileheader[2] = (unsigned char)(filesize);
+	        bmpfileheader[3] = (unsigned char)(filesize >> 8);
+	        bmpfileheader[4] = (unsigned char)(filesize >> 16);
+	        bmpfileheader[5] = (unsigned char)(filesize >> 24);
+	
+	        bmpinfoheader[4] = (unsigned char)(w);
+	        bmpinfoheader[5] = (unsigned char)(w >> 8);
+	        bmpinfoheader[6] = (unsigned char)(w >> 16);
+	        bmpinfoheader[7] = (unsigned char)(w >> 24);
+	        bmpinfoheader[8] = (unsigned char)(h);
+	        bmpinfoheader[9] = (unsigned char)(h >> 8);
+	        bmpinfoheader[10] = (unsigned char)(h >> 16);
+	        bmpinfoheader[11] = (unsigned char)(h >> 24);
+	        bmpinfoheader[20] = (unsigned char)(h*w/2);
+	        bmpinfoheader[21] = (unsigned char)((h*w/2) >> 8);
+	        bmpinfoheader[22] = (unsigned char)((h*w/2) >> 16);
+	        bmpinfoheader[23] = (unsigned char)((h*w/2) >> 24);
+	
+	        if(filesource[fnbr]==FATFSFILE) {
+	            f_write(FileTable[fnbr].fptr, bmpfileheader, 14, &nbr);
+	            f_write(FileTable[fnbr].fptr, bmpinfoheader, 40, &nbr);
+	            f_write(FileTable[fnbr].fptr, bmpcolourpallette, 64, &nbr);
+	        } else {
+	            FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, bmpfileheader, 14); 
+	            if(FSerror>0)FSerror=0;
+	            ErrorCheck(fnbr);
+	            FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, bmpinfoheader, 40); 
+	            if(FSerror>0)FSerror=0;
+	            FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, bmpcolourpallette, 64); 
+	            if(FSerror>0)FSerror=0;
+	            ErrorCheck(fnbr);
+	        }
+	        flinebuf = GetTempMemory(maxW * 4);
+	        outbuf=GetTempMemory(maxW/2);
+	        for (i = y + h - 1; i >= y; i--)
+	        {
+	            ReadBuffer(x, i, x + w - 1, i, flinebuf);
+	            p=flinebuf;
+	            pp=outbuf;
+	            for(int k=0;k<w;k++){
+	                c.rgbbytes[2]=*p++; //this order swaps the bytes to match the .BMP file
+		            c.rgbbytes[1]=*p++;
+		            c.rgbbytes[0]=*p++;
+	                fcolour = ((c.rgb & 0x800000)>> 20) | ((c.rgb & 0xC000)>>13) | ((c.rgb & 0x80)>>7);
+	                if(k & 1){
+	                    *pp |=(fcolour);
+	                    pp++;
+	                } else {
+	                    *pp = fcolour<<4;
+	                }
+	            }
+	            if(filesource[fnbr]==FATFSFILE) f_write(FileTable[fnbr].fptr, outbuf, w / 2, &nbr);
+	            else {
+	                    FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, outbuf, w /2); 
+	            }
+	            if(FSerror>0)FSerror=0;
+	            ErrorCheck(fnbr);
+	            if ((w / 2) % 4 != 0)
+	                if(filesource[fnbr]==FATFSFILE)f_write(FileTable[fnbr].fptr, bmppad, 4 - ((w / 2 ) % 4), &nbr);
+	                else {
+	                    FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, bmppad, 4 - ((w / 2 ) % 4)); 
+	                }
+	                if(FSerror>0)FSerror=0;
+	                ErrorCheck(fnbr);
+	        }
+	        FileClose(fnbr);
+	        return;
+        }
+
         unsigned int nbr;
         int i, x, y, w, h, filesize;
         unsigned char bmpfileheader[14] = {'B', 'M', 0, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0};
@@ -1169,7 +1596,7 @@ void cmd_save(void)
             return;
         if ((void *)ReadBuffer == (void *)DisplayNotSet)
             error("SAVE IMAGE not available on this display");
-        pp = getCstring(argv[0]);
+        pp = getFstring(argv[0]);
         if (argc != 1 && argc != 9)
             error("Syntax");
         if (strchr(pp, '.') == NULL)
@@ -1204,7 +1631,7 @@ void cmd_save(void)
         bmpinfoheader[9] = (unsigned char)(h >> 8);
         bmpinfoheader[10] = (unsigned char)(h >> 16);
         bmpinfoheader[11] = (unsigned char)(h >> 24);
-        if(FatFSFileSystem) {
+        if(filesource[fnbr]==FATFSFILE) {
             f_write(FileTable[fnbr].fptr, bmpfileheader, 14, &nbr);
             f_write(FileTable[fnbr].fptr, bmpinfoheader, 40, &nbr);
         } else {
@@ -1219,14 +1646,14 @@ void cmd_save(void)
         for (i = y + h - 1; i >= y; i--)
         {
             ReadBuffer(x, i, x + w - 1, i, flinebuf);
-            if(FatFSFileSystem) f_write(FileTable[fnbr].fptr, flinebuf, w * 3, &nbr);
+            if(filesource[fnbr]==FATFSFILE) f_write(FileTable[fnbr].fptr, flinebuf, w * 3, &nbr);
             else {
                     FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, flinebuf, w * 3); 
                     if(FSerror>0)FSerror=0;
                     ErrorCheck(fnbr);
             }
             if ((w * 3) % 4 != 0)
-                if(FatFSFileSystem) f_write(FileTable[fnbr].fptr, bmppad, 4 - ((w * 3) % 4), &nbr);
+                if(filesource[fnbr]==FATFSFILE)f_write(FileTable[fnbr].fptr, bmppad, 4 - ((w * 3) % 4), &nbr);
                 else {
                     FSerror=lfs_file_write(&lfs, FileTable[fnbr].lfsptr, bmppad, 4 - ((w * 3) % 4)); 
                     if(FSerror>0)FSerror=0;
@@ -1239,7 +1666,7 @@ void cmd_save(void)
     else
     {
         unsigned char b[STRINGSIZE];
-        p = getCstring(cmdline); // get the file name and change to the directory
+        p = getFstring(cmdline); // get the file name and change to the directory
         if (strchr(p, '.') == NULL)
             strcat(p, ".bas");
         if (!BasicFileOpen(p, fnbr, FA_WRITE | FA_CREATE_ALWAYS))
@@ -1266,7 +1693,7 @@ int FileLoadProgram(unsigned char *fname)
     if (!InitSDCard()) return false;
     ClearProgram(); // clear any leftovers from the previous program
     fnbr = FindFreeFileNbr();
-    p = getCstring(fname);
+    p = getFstring(fname);
     if (strchr(p, '.') == NULL) strcat(p, ".bas");
     if (!BasicFileOpen(p, fnbr, FA_READ)) return false;
     p = buf = GetTempMemory(EDIT_BUFFER_SIZE-2048); // get all the memory while leaving space for the couple of buffers defined and the file handle
@@ -1593,15 +2020,14 @@ void getfullfilename(char *fname, char *q){
     char *p=fname;
     int i,j;
     i=strlen(p)-1;
-    while(i>0 && !(p[i] == 92 || p[i]==47))i--;
+    while(i>0 && !(p[i]=='/'))i--;
     if(i>0){
         memcpy(q,p,i);
-            for(j=0;j<strlen(q);j++)if(q[j]=='\\')q[j]='/';  //allow backslash for the DOS oldies
         if(q[1]==':')q[0]='0';
         i++;
     }
     strcpy(pp,&p[i]);
-    if((pp[0]==47 || pp[0]==92) && i==0){
+    if((pp[0]=='/') && i==0){
         strcpy(q,&pp[1]);
         strcpy(pp,q);
         strcpy(q,"0:/");
@@ -1686,20 +2112,11 @@ int strcicmp(char const *a, char const *b)
             return d;
     }
 }
-void B2A(unsigned char *tp){
-    char ss[2]; // this will be used to split up the argument line
-    char *fromfile, *tofile;
-    ss[0] = tokenTO;
-    ss[1] = 0;
+void B2A(unsigned char *fromfile, unsigned char *tofile){
     char buff[512];
     unsigned int nbr = 0, bw;
     int fnbr1, fnbr2, err;
-    getargs(&tp, 3, ss);
-    if (argc != 3)
-        error("Syntax");
     fnbr1 = FindFreeFileNbr();
-    fromfile = getCstring(argv[0]);
-    tofile = getCstring(argv[2]);
     FatFSFileSystem=1; //set to SD
     BasicFileOpen(fromfile, fnbr1, FA_READ);
     fnbr2 = FindFreeFileNbr();
@@ -1721,20 +2138,12 @@ void B2A(unsigned char *tp){
     FileClose(fnbr2);
     FatFSFileSystem=FatFSFileSystemSave;
 }
-void A2B(unsigned char *tp){
-    char ss[2]; // this will be used to split up the argument line
-    char *fromfile, *tofile;
-    ss[0] = tokenTO;
-    ss[1] = 0;
+void A2B(unsigned char *fromfile, unsigned char *tofile){
     char buff[512];
     unsigned int nbr = 0, bw;
     int fnbr1, fnbr2, err;
-    getargs(&tp, 3, ss);
-    if (argc != 3) error("Syntax");
     FatFSFileSystem=0; //set to flash
     fnbr1 = FindFreeFileNbr();
-    fromfile = getCstring(argv[0]);
-    tofile = getCstring(argv[2]);
     BasicFileOpen(fromfile, fnbr1, FA_READ);
     fnbr2 = FindFreeFileNbr();
     FatFSFileSystem=1; //set to SD
@@ -1754,22 +2163,14 @@ void A2B(unsigned char *tp){
     FileClose(fnbr2);
     FatFSFileSystem=FatFSFileSystemSave;
 }
-void B2B(unsigned char *tp){
-    char ss[2]; // this will be used to split up the argument line
-    char *fromfile, *tofile;
-    ss[0] = tokenTO;
-    ss[1] = 0;
+void B2B(unsigned char *fromfile, unsigned char *tofile){
     char buff[512];
     unsigned int nbr = 0, bw;
     int fnbr1, fnbr2, err;
-    getargs(&tp, 3, ss);
-    if (argc != 3)
-        error("Syntax");
     fnbr1 = FindFreeFileNbr();
-    fromfile = getCstring(argv[0]);
-    tofile = getCstring(argv[2]);
     FatFSFileSystem=1; //set to SD
     BasicFileOpen(fromfile, fnbr1, FA_READ);
+    FatFSFileSystem=1; //set to SD
     fnbr2 = FindFreeFileNbr();
     if (!BasicFileOpen(tofile, fnbr2, FA_WRITE | FA_CREATE_ALWAYS))
     {
@@ -1786,23 +2187,15 @@ void B2B(unsigned char *tp){
     FileClose(fnbr2);
     FatFSFileSystem=FatFSFileSystemSave;
 }
-void A2A(unsigned char *tp){
-    char ss[2]; // this will be used to split up the argument line
-    char *fromfile, *tofile;
-    ss[0] = tokenTO;
-    ss[1] = 0;
+void A2A(unsigned char *fromfile, unsigned char *tofile){
     char buff[512];
     unsigned int nbr = 0, bw;
     int fnbr1, fnbr2, err;
-    getargs(&tp, 3, ss);
-    if (argc != 3)
-        error("Syntax");
     fnbr1 = FindFreeFileNbr();
-    fromfile = getCstring(argv[0]);
-    tofile = getCstring(argv[2]);
     FatFSFileSystem=0; //set to FLASH
     BasicFileOpen(fromfile, fnbr1, FA_READ);
     fnbr2 = FindFreeFileNbr();
+    FatFSFileSystem=0; //set to FLASH
     if (!BasicFileOpen(tofile, fnbr2, FA_WRITE | FA_CREATE_ALWAYS))
     {
         FileClose(fnbr1);
@@ -1834,7 +2227,7 @@ int drivecheck(char *p, int *waste){
         }
         return FatFSFileSystem+1;
     } else  {
-        if(!(p[1]==':' && (p[2]==47 || p[2]==92))) return FatFSFileSystem+1;
+        if(!(p[1]==':' && (p[2]=='/'))) return FatFSFileSystem+1;
         if(*p=='a' || *p=='A') {
             *waste=2;
             return FLASHFILE;
@@ -1857,45 +2250,193 @@ void cmd_copy(void)
     int waste;
     unsigned char *tp = checkstring(cmdline, "B2A");
     if(tp){
-        B2A(tp);
+        getargs(&tp, 3, ss);
+        if (argc != 3) error("Syntax");
+        fromfile = getFstring(argv[0]);
+        tofile = getFstring(argv[2]);
+        B2A(fromfile,tofile);
         return;
     }        
     tp = checkstring(cmdline, "A2B");
     if(tp){
-        A2B(tp);
+        getargs(&tp, 3, ss);
+        if (argc != 3) error("Syntax");
+        fromfile = getFstring(argv[0]);
+        tofile = getFstring(argv[2]);
+        A2B(fromfile,tofile);
         return;
     }
     tp = checkstring(cmdline, "A2A");
     if(tp){
-        A2A(tp);
+        getargs(&tp, 3, ss);
+        if (argc != 3) error("Syntax");
+        fromfile = getFstring(argv[0]);
+        tofile = getFstring(argv[2]);
+        A2A(fromfile,tofile);
         return;
     }
     tp = checkstring(cmdline, "B2B");
     if(tp){
-        B2B(tp);
+        getargs(&tp, 3, ss);
+        if (argc != 3) error("Syntax");
+        fromfile = getFstring(argv[0]);
+        tofile = getFstring(argv[2]);
+        B2B(fromfile,tofile);
         return;
     }
+    
     getargs(&p, 3, ss);
     if (argc != 3) error("Syntax");
-    fromfile = getCstring(argv[0]);
-    tofile = getCstring(argv[2]);
+    fromfile = getFstring(argv[0]);
+    tofile = getFstring(argv[2]);
+    int tofilesystem;
+    char todir[FF_MAX_LFN]={0};
+    int fromfilesystem;
+    char fromdir[FF_MAX_LFN]={0};
+    if(strchr(fromfile,'*') || strchr(fromfile,'?')){ //wildcard in the source so bulk copy
+        char *in=GetTempMemory(STRINGSIZE);
+        char *out=GetTempMemory(STRINGSIZE);
+//         MMPrintString("Bulk copying\r\n");
+        int localsave=FatFSFileSystem;
+        if(!(ExistsDir(tofile, todir, &tofilesystem))){
+            FatFSFileSystem=localsave;
+            error("$ not a directory",tofile);
+        } 
+        int waste=0, t=FatFSFileSystem+1;
+        t = drivecheck(getFstring(argv[0]),&waste);
+        argv[0]+=waste;
+        *argv[0]='"';
+        FatFSFileSystem=t-1;
+        int i,j, currentsize;
+        uint32_t currentdate;
+        char *p, extension[8];
+        int fcnt, sortorder = 0;
+        char ts[FF_MAX_LFN] = {0};
+        char pp[FF_MAX_LFN] = {0};
+        char q[FF_MAX_LFN] = {0};
+        DIR djd;
+        FILINFO fnod;
+        memset(&djd, 0, sizeof(DIR));
+        memset(&fnod, 0, sizeof(FILINFO));
+        fcnt = 0;
+        p = getFstring(argv[0]);
+        i = strlen(p) - 1;
+        while (i > 0 && !(p[i] == '/'))
+            i--;
+        if (i > 0)
+        {
+            memcpy(q, p, i);
+            if (q[1] == ':')
+                q[0] = '0';
+            i++;
+        }
+        strcpy(pp, &p[i]);
+        if ((pp[0] == '/') && i == 0)
+        {
+            strcpy(q, &pp[1]);
+            strcpy(pp, q);
+            strcpy(q, "0:/");
+        }
+        if (pp[0] == 0)
+            strcpy(pp, "*");
+        if (CurrentLinePtr)
+            error("Invalid in a program");
+        FatFSFileSystem=t-1;
+        if (!InitSDCard())
+            error((char *)FErrorMsg[20]); // setup the SD card
+        FatFSFileSystem=t-1;
+        fullpath(q);
+        if(!(ExistsDir(fullpathname[FatFSFileSystem],fromdir,&fromfilesystem))){
+            FatFSFileSystem=localsave;
+            error("$ not a directory",fromdir);
+        }
+//        MMPrintString(fromdir);putConsole(':',0);MMPrintString(todir);PRet();
+//        PInt(fromfilesystem);PIntComma(tofilesystem);PRet();
+        if(fromfilesystem==tofilesystem && strcmp(fromdir,todir)==0){
+            FatFSFileSystem=localsave;
+            error("Source and destination are the same");
+        }
+        if(fromfilesystem==0) FSerror=lfs_dir_open(&lfs, &lfs_dir, fromdir);
+        else FSerror = f_findfirst(&djd, &fnod, fromdir, pp);
+        ErrorCheck(0);
+        if(fromfilesystem){
+            while (FSerror == FR_OK && fnod.fname[0])
+            {
+                if (!(fnod.fattrib & (AM_SYS | AM_HID | AM_DIR)))
+                {
+                    // add a prefix to each line so that directories will sort ahead of files
+                   currentsize = fnod.fsize;
+                    // and concatenate the filename found
+                    MMPrintString("Copying ");
+                    MMPrintString(fnod.fname);PRet();
+                    strcpy(in,fromdir);
+                    strcpy(out,todir);
+                    if(in[strlen(in)-1]!='/')strcat(in,"/");
+                    if(out[strlen(out)-1]!='/')strcat(out,"/");
+                    strcat(out,fnod.fname);
+                    strcat(in,fnod.fname);
+                    if(fromfilesystem==1 && tofilesystem==1)B2B(in,out);
+                    else if(fromfilesystem==0 && tofilesystem==0)A2A(in,out);
+                    else if(fromfilesystem==1 && tofilesystem==0)B2A(in,out);
+                    else if(fromfilesystem==0 && tofilesystem==1)A2B(in,out);
+                }
+            FSerror = f_findnext(&djd, &fnod);
+            } 
+        } else {
+            while(1){
+                int found=0;
+                FSerror=lfs_dir_read(&lfs, &lfs_dir, &lfs_info);
+                if(FSerror==0)break;
+                if(FSerror<0)ErrorCheck(0);
+                if (lfs_info.type==LFS_TYPE_DIR && pattern_matching(pp, lfs_info.name, 0, 0))
+                {
+                    continue;
+                }
+                else if (lfs_info.type==LFS_TYPE_REG && pattern_matching(pp, lfs_info.name, 0, 0))
+                {
+                    found=1;
+                }
+                if(found){
+                    currentsize = lfs_info.size;
+                    // and concatenate the filename found
+                    MMPrintString("Copying ");
+                    MMPrintString(lfs_info.name);PRet();
+                    strcpy(in,fromdir);
+                    strcpy(out,todir);
+                    if(in[strlen(in)-1]!='/')strcat(in,"/");
+                    if(out[strlen(out)-1]!='/')strcat(out,"/");
+                    strcat(out,lfs_info.name);
+                    strcat(in,lfs_info.name);
+                    if(fromfilesystem==1 && tofilesystem==1)B2B(in,out);
+                    else if(fromfilesystem==0 && tofilesystem==0)A2A(in,out);
+                    else if(fromfilesystem==1 && tofilesystem==0)B2A(in,out);
+                    else if(fromfilesystem==0 && tofilesystem==1)A2B(in,out);
+                }
+            }
+        }
+        if(fromfilesystem) f_closedir(&djd);
+        else lfs_dir_close(&lfs, &lfs_dir);
+        FatFSFileSystem=FatFSFileSystemSave;
+        return;
+    }
 
     if(drivecheck(fromfile, &waste)==FLASHFILE && drivecheck(tofile, &waste)==FLASHFILE){
-        A2A(cmdline);
+        A2A(fromfile,tofile);
         return;
     }
     if(drivecheck(fromfile, &waste)==FATFSFILE && drivecheck(tofile, &waste)==FATFSFILE){
-        B2B(cmdline);
+        B2B(fromfile,tofile);
         return;
     }
     if(drivecheck(fromfile, &waste)==FLASHFILE && drivecheck(tofile, &waste)==FATFSFILE){
-        A2B(cmdline);
+        A2B(fromfile,tofile);
         return;
     }
     if(drivecheck(fromfile, &waste)==FATFSFILE && drivecheck(tofile, &waste)==FLASHFILE){
-        B2A(cmdline);
+        B2A(fromfile,tofile);
         return;
     }
+    FatFSFileSystem=FatFSFileSystemSave;
 }
 
 int resolve_path(char *path, char *result, char *pos)
@@ -1961,19 +2502,20 @@ int resolve_path(char *path, char *result, char *pos)
 
 void fullpath(char *q)
 {
-    char *p = GetTempMemory(STRINGSIZE);
-    char *rp = GetTempMemory(STRINGSIZE);
+    char *p = GetMemory(STRINGSIZE);
+    char *rp = GetMemory(STRINGSIZE);
+    char *fp=p;
+    char *frp=rp;
     int i;
     strcpy(p, q);
     memset(fullpathname[FatFSFileSystem], 0, sizeof(fullpathname[FatFSFileSystem]));
     strcpy(fullpathname[FatFSFileSystem], filepath[FatFSFileSystem]);
-    for (i = 0; i < strlen(p); i++)
-        if (p[i] == '\\')
-            p[i] = '/'; // allow backslash for the DOS oldies
     if (strcmp(p, ".") == 0 || strlen(p) == 0)
     {
         memmove(fullpathname[FatFSFileSystem], &fullpathname[FatFSFileSystem][2], strlen(fullpathname[FatFSFileSystem]));
         //    	MMPrintString("Now: ");MMPrintString(fullpathname);PRet();
+	    FreeMemory(fp);
+	    FreeMemory(frp);
         return; // nothing to do
     }
     if (p[1] == ':')
@@ -2005,11 +2547,12 @@ void fullpath(char *q)
     strcpy(fullpathname[FatFSFileSystem], rp); // store this back to the filepath variable
     memmove(fullpathname[FatFSFileSystem], &fullpathname[FatFSFileSystem][2], strlen(fullpathname[FatFSFileSystem]));
 //    MMPrintString("Now: ");MMPrintString(fullpathname[FatFSFileSystem]);PRet();
+    FreeMemory(fp);
+    FreeMemory(frp);
 }
 void getfullpath(char *p, char *q){
 	int j;
     strcpy(q,p);
-    for(j=0;j<strlen(q);j++)if(q[j]=='\\')q[j]='/';  //allow backslash for the DOS oldies
     if(q[1]==':')q[0]='0';
     fullpath(q);
     strcpy(q,fullpathname[FatFSFileSystem]);
@@ -2018,22 +2561,21 @@ void getfullfilepath(char *p, char *q){
 	int i,j;
     char pp[FF_MAX_LFN] = {0};
     i=strlen(p)-1;
-    while(i>0 && !(p[i] == 92 || p[i]==47))i--;
+    while(i>0 && !(p[i]=='/'))i--;
     if(i>0){
     	memcpy(q,p,i);
-    	 for(j=0;j<strlen(q);j++)if(q[j]=='\\')q[j]='/';  //allow backslash for the DOS oldies
     	if(q[1]==':')q[0]='0';
     	i++;
     }
     strcpy(pp,&p[i]);
-    if((pp[0]==47 || pp[0]==92) && i==0){
+    if((pp[0]=='/') && i==0){
     	strcpy(q,&pp[1]);
     	strcpy(pp,q);
     	strcpy(q,"0:/");
     }
     fullpath(q);
     strcpy(q,fullpathname[FatFSFileSystem]);
-    if(q[strlen(q)-1]!=47)strcat(q,"/");
+    if(q[strlen(q)-1]!='/')strcat(q,"/");
     strcat(q,pp);
 }
 
@@ -2042,11 +2584,12 @@ void cmd_files(void)
     if(CurrentLinePtr) error("Invalid in a program");
     int waste=0, t=FatFSFileSystem+1;
     if(*cmdline){
-        t = drivecheck(getCstring(cmdline),&waste);
+        t = drivecheck(getFstring(cmdline),&waste);
         cmdline+=waste;
         *cmdline='"';
     }
     ClearVars(0);
+    ClearRuntime();
     int i, j, c, dirs, ListCnt, currentsize;
     uint32_t currentdate;
     char *p, extension[8];
@@ -2065,22 +2608,19 @@ void cmd_files(void)
         getargs(&cmdline, 3, ",");
         if (!(argc == 1 || argc == 3))
             error("Syntax");
-        p = getCstring(argv[0]);
+        p = getFstring(argv[0]);
         i = strlen(p) - 1;
-        while (i > 0 && !(p[i] == 92 || p[i] == 47))
+        while (i > 0 && !(p[i] == '/'))
             i--;
         if (i > 0)
         {
             memcpy(q, p, i);
-            for (j = 0; j < strlen(q); j++)
-                if (q[j] == '\\')
-                    q[j] = '/'; // allow backslash for the DOS oldies
             if (q[1] == ':')
                 q[0] = '0';
             i++;
         }
         strcpy(pp, &p[i]);
-        if ((pp[0] == 47 || pp[0] == 92) && i == 0)
+        if ((pp[0] == '/') && i == 0)
         {
             strcpy(q, &pp[1]);
             strcpy(pp, q);
@@ -2128,6 +2668,9 @@ void cmd_files(void)
         if(FatFSFileSystem){
             while (FSerror == FR_OK && fnod.fname[0])
             {
+            #ifdef PICOMITEWEB
+                ProcessWeb();
+            #endif
                 if (fcnt >= MAXFILES)
                 {
                     FreeMemorySafe((void **)&flist);
@@ -2244,6 +2787,9 @@ void cmd_files(void)
             } 
         } else {
             while(1){
+            #ifdef PICOMITEWEB
+                ProcessWeb();
+            #endif
                 int found=0;
                 FSerror=lfs_dir_read(&lfs, &lfs_dir, &lfs_info);
                 if(FSerror==0)break;
@@ -2297,7 +2843,7 @@ void cmd_files(void)
                         fnod.ftime=(WORD)p[0];
                     }
                     currentdate = (fnod.fdate << 16) | fnod.ftime;
-                    // sort the file name into place in the array
+                     // sort the file name into place in the array
                     if (sortorder == 0)
                     {
                         for (i = fcnt; i > 0; i--)
@@ -2374,6 +2920,9 @@ void cmd_files(void)
         ListCnt = 2;
         for (i = dirs = 0; i < fcnt; i++)
         {
+            #ifdef PICOMITEWEB
+                ProcessWeb();
+            #endif
             routinechecks();
             if (MMAbort)
             {
@@ -2415,6 +2964,9 @@ void cmd_files(void)
                 do
                 {
                     ShowCursor(1);
+                #ifdef PICOMITEWEB
+                    ProcessWeb();
+                #endif
                     routinechecks();
                     if (MMAbort)
                     {
@@ -2509,6 +3061,31 @@ void cmd_autosave(void)
     uint64_t timeout;
     if (CurrentLinePtr)
         error("Invalid in a program");
+    char *tp=checkstring(cmdline,"APPEND");
+    if(tp){
+        ClearVars(0);
+        CloseAudio(1);
+        CloseAllFiles();
+        ClearExternalIO();                                              // this MUST come before InitHeap()
+#ifdef PICOMITEWEB
+        if(TCPstate){
+            for(int i=0;i<MaxPcb;i++)FreeMemory(TCPstate->buffer_recv[i]);
+        }
+#endif
+        p = buf = GetMemory(EDIT_BUFFER_SIZE);
+        char * fromp  = ProgMemory;
+        p = buf;
+        while(*fromp != 0xff) {
+            if(*fromp == T_NEWLINE) {
+                fromp = llist(p, fromp);                                // otherwise expand the line
+                p += strlen(p);
+                *p++ = '\n'; *p = 0;
+            }
+            // finally, is it the end of the program?
+            if(fromp[0] == 0 || fromp[0] == 0xff) break;
+        }
+        goto readin;
+    }
     if (*cmdline)
     {
         if (toupper(*cmdline) == 'C')
@@ -2519,6 +3096,7 @@ void cmd_autosave(void)
     ClearProgram(); // clear any leftovers from the previous program
     p = buf = GetMemory(EDIT_BUFFER_SIZE);
     CrunchData(&p, 0); // initialise the crunch data subroutine
+readin:;
     while ((c = MMInkey()) != 0x1a && c != F1 && c != F2)
     { // while waiting for the end of text char
         if (c == -1 && count && time_us_64() - timeout > 100000)
@@ -2563,6 +3141,11 @@ void cmd_autosave(void)
     SaveProgramToFlash(buf, true);
     ClearSavedVars(); // clear any saved variables
     FreeMemory(buf);
+#ifdef PICOMITEWEB
+        if(TCPstate){
+            for(int i=0;i<MaxPcb;i++)TCPstate->buffer_recv[i]=GetMemory(TCP_READ_BUFFER_SIZE);
+        }
+#endif
     if (c == F2)
     {
         ClearVars(0);
@@ -2607,7 +3190,7 @@ void cmd_open(void)
         getargs(&cmdline, 7, ss); // getargs macro must be the first executable stmt in a block
         if (!(argc == 3 || argc == 5 || argc == 7))
             error("Syntax");
-        fname = getCstring(argv[0]);
+        fname = getFstring(argv[0]);
 
         // check that it is a serial port that we are opening
         if (argc == 5 && !(mem_equal(fname, "COM1:", 5) || mem_equal(fname, "COM2:", 5)))
@@ -2890,8 +3473,8 @@ void __not_in_flash_func(CheckSDCard)(void)
 void LoadOptions(void)
 {
     int i = sizeof(struct option_s);
-    char *pp = (char *)flash_option_contents;
-    char *qq = (char *)&Option;
+    unsigned char *pp = (char *)flash_option_contents;
+    unsigned char *qq = (char *)&Option;
     while (i--)
         *qq++ = *pp++;
 }
@@ -2910,6 +3493,7 @@ void ResetOptions(void)
     Option.DefaultFont = 0x01;
     Option.DefaultBrightness = 100;
     Option.Baudrate = CONSOLE_BAUDRATE;
+    Option.PROG_FLASH_SIZE=MAX_PROG_SIZE;
 #ifdef PICOMITEVGA
     Option.CPU_Speed = 126000;
     Option.DISPLAY_CONSOLE = 1;
@@ -2926,9 +3510,14 @@ void ResetOptions(void)
 #  endif  // JPKBD && NEXTDAY_SPEC
     Option.VGABC = 0x0000;
     Option.VGAFC = 0xFFFF;
+    Option.X_TILE=80;
+    Option.Y_TILE=40;
 #else
     Option.CPU_Speed = 133000;
     Option.KeyboardConfig = NO_KEYBOARD;
+#endif
+#ifdef PICOMITEWEB
+    Option.ServerResponceTime=5000;
 #endif
     Option.AUDIO_SLICE = 99;
     Option.SDspeed = 10;
@@ -2937,8 +3526,6 @@ void ResetOptions(void)
     Option.DefaultFC = WHITE;
     Option.DefaultBC = BLACK;
     Option.LCDVOP = 0xB1;
-    Option.PROG_FLASH_SIZE = MAX_PROG_SIZE;
-    Option.HEAP_SIZE = MAX_PROG_SIZE;
     Option.INT1pin = 9;
     Option.INT2pin = 10;
     Option.INT3pin = 11;
@@ -3270,6 +3857,6 @@ void SaveOptions(void)
     enable_interrupts();
     uSec(10000);
     disable_interrupts();
-    flash_range_program(FLASH_TARGET_OFFSET, (const uint8_t *)&Option, 512);
+    flash_range_program(FLASH_TARGET_OFFSET, (const uint8_t *)&Option, 768);
     enable_interrupts();
 }

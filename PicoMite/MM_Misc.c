@@ -33,12 +33,37 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 #include <complex.h>
 #include "pico/bootrom.h"
 #include "hardware/structs/systick.h"
+#include "hardware/structs/pwm.h"
 #include "hardware/dma.h"
 #include "hardware/adc.h"
 #include "hardware/pwm.h"
 #include "hardware/flash.h"
 #include "hardware/spi.h"
+#include "hardware/pio.h"
+#include "hardware/pio_instructions.h"
+#include <malloc.h>
 
+uint32_t getTotalHeap(void) {
+   extern char __StackLimit, __bss_end__;
+   
+   return &__StackLimit  - &__bss_end__;
+}
+
+uint32_t getFreeHeap(void) {
+   struct mallinfo m = mallinfo();
+
+   return getTotalHeap() - m.uordblks;
+}
+
+uint32_t getProgramSize(void) {
+   extern char __flash_binary_start, __flash_binary_end;
+
+   return &__flash_binary_end - &__flash_binary_start;
+}
+
+uint32_t getFreeProgramSpace() {
+   return PICO_FLASH_SIZE_BYTES - getProgramSize();
+}
 extern int busfault;
 //#include "pico/stdio_usb/reset_interface.h"
 const char *OrientList[] = {"LANDSCAPE", "PORTRAIT", "RLANDSCAPE", "RPORTRAIT"};
@@ -51,7 +76,10 @@ extern const void * const CallTable[];
 struct s_inttbl inttbl[NBRINTERRUPTS];
 unsigned char *InterruptReturn;
 extern const char *FErrorMsg[];
-
+#ifdef PICOMITEWEB
+	char *MQTTInterrupt=NULL;
+	volatile int MQTTComplete=0;
+#endif
 int TickPeriod[NBRSETTICKS]={0};
 volatile int TickTimer[NBRSETTICKS]={0};
 unsigned char *TickInt[NBRSETTICKS]={NULL};
@@ -63,7 +91,6 @@ const char *CaseList[] = {"", "LOWER", "UPPER"};
 int OptionErrorCheck;
 unsigned char EchoOption = true;
 unsigned long long int __attribute__((section(".my_section"))) saved_variable;  //  __attribute__ ((persistent));  // and this is the address
-
 unsigned int CurrentCpuSpeed;
 unsigned int PeripheralBusSpeed;
 extern char *ADCInterrupt;
@@ -77,6 +104,7 @@ extern char id_out[12];
 extern void WriteCommand(int cmd);
 extern void WriteData(int data);
 char *CSubInterrupt;
+MMFLOAT optionangle=1.0;
 volatile int CSubComplete=0;
 uint64_t timeroffset=0;
 int SaveOptionErrorSkip=0;
@@ -446,7 +474,7 @@ void cmd_longString(void){
         int j=0;
     	getargs(&tp, 5, ",");
         if(argc != 5)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {		// Not an array
@@ -470,7 +498,7 @@ void cmd_longString(void){
         int i,j,nbr;
         getargs(&tp, 3, ",");
         if(argc != 3)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -497,7 +525,7 @@ void cmd_longString(void){
         int i;
         getargs(&tp, 3, ",");
         if(argc != 3)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -506,7 +534,7 @@ void cmd_longString(void){
             dest = (long long int *)ptr1;
             q=(char *)&dest[1];
         } else error("Argument 1 must be integer array");
-        trim=getint(argv[2],1,dest[0]-1);
+        trim=getint(argv[2],1,dest[0]);
         i = dest[0]-trim;
         p=q+trim;
         while(i--)*q++=*p++;
@@ -522,7 +550,7 @@ void cmd_longString(void){
         int i,nbr;
         getargs(&tp, 5, ",");
         if(argc != 5)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -549,7 +577,7 @@ void cmd_longString(void){
         if(argc != 5)error("Argument count");
         int64_t nbr=getinteger(argv[2]);
         i=nbr;
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -578,7 +606,7 @@ void cmd_longString(void){
         int i,j,nbr;
         getargs(&tp, 5, ",");
         if(argc != 5)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -588,7 +616,7 @@ void cmd_longString(void){
             q=(char *)&dest[1];
         } else error("Argument 1 must be integer array");
         j=(vartbl[VarIndex].dims[0] - OptionBase);
-        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK);
+        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -614,7 +642,7 @@ void cmd_longString(void){
         int i,j,nbr;
         getargs(&tp, 5, ",");
         if(argc != 5)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -624,7 +652,7 @@ void cmd_longString(void){
             q=(char *)&dest[1];
         } else error("Argument 1 must be integer array");
         j=(vartbl[VarIndex].dims[0] - OptionBase);
-        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK);
+        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -651,8 +679,8 @@ void cmd_longString(void){
         char *q=NULL;
         int i,j,nbr,start;
         getargs(&tp, 7, ",");
-        if(argc != 7)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        if(argc < 5)error("Argument count");
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -662,7 +690,7 @@ void cmd_longString(void){
             q=(char *)&dest[1];
         } else error("Argument 1 must be integer array");
         j=(vartbl[VarIndex].dims[0] - OptionBase);
-        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK);
+        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -672,7 +700,8 @@ void cmd_longString(void){
             p=(char *)&src[1];
         } else error("Argument 2 must be integer array");
         start=getint(argv[4],1,src[0]);
-        nbr=getinteger(argv[6]);
+        if(argc==7)nbr=getinteger(argv[6]);
+        else nbr=src[0];
         p+=start-1;
         if(nbr+start>src[0]){
             nbr=src[0]-start+1;
@@ -689,7 +718,7 @@ void cmd_longString(void){
         int64_t *dest=NULL;
         getargs(&tp, 1, ",");
         if(argc != 1)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -707,7 +736,7 @@ void cmd_longString(void){
         int j=0;
         getargs(&tp, 3, ",");
         if(argc != 3)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {		// Not an array
@@ -727,7 +756,7 @@ void cmd_longString(void){
         int i;
         getargs(&tp, 1, ",");
         if(argc != 1)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -763,7 +792,7 @@ void cmd_longString(void){
             i = 0;
         }
         if(argc>=1){
-            ptr1 = findvar(argv[i], V_FIND | V_EMPTY_OK);
+            ptr1 = findvar(argv[i], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
             if(vartbl[VarIndex].type & T_INT) {
                 if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
                 if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -792,7 +821,7 @@ void cmd_longString(void){
         int i;
         getargs(&tp, 1, ",");
         if(argc != 1)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -819,7 +848,7 @@ void cmd_longString(void){
         int i=0,j;
         getargs(&tp, 3, ",");
         if(argc != 3)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -830,7 +859,7 @@ void cmd_longString(void){
             q=(char *)&dest[1];
         } else error("Argument 1 must be integer array");
         j=(vartbl[VarIndex].dims[0] - OptionBase);
-        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK);
+        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -855,7 +884,7 @@ void cmd_longString(void){
         int i=0,j,d=0,s=0;
         getargs(&tp, 3, ",");
         if(argc != 3)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -866,7 +895,7 @@ void cmd_longString(void){
             q=(char *)&dest[1];
         } else error("Argument 1 must be integer array");
         j=(vartbl[VarIndex].dims[0] - OptionBase);
-        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK);
+        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -892,7 +921,7 @@ void fun_LGetStr(void){
         int start,nbr,j;
         getargs(&ep, 5, ",");
         if(argc != 5)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -922,7 +951,7 @@ void fun_LGetByte(void){
         int start,j;
     	getargs(&ep, 3, ",");
         if(argc != 3)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {		// Not an array
@@ -949,7 +978,7 @@ void fun_LInstr(void){
         int64_t start;
         if(argc==5)start=getinteger(argv[4])-1;
         else start=0;
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -987,7 +1016,7 @@ void fun_LCompare(void){
         int d=0,s=0,found=0;
         getargs(&ep, 3, ",");
         if(argc != 3)error("Argument count");
-        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+        ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -997,7 +1026,7 @@ void fun_LCompare(void){
             q=(char *)&dest[1];
             d=dest[0];
         } else error("Argument 1 must be integer array");
-        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK);
+        ptr2 = findvar(argv[2], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
         if(vartbl[VarIndex].type & T_INT) {
             if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
             if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -1023,7 +1052,7 @@ void fun_LLen(void) {
     int64_t *dest=NULL;
     getargs(&ep, 1, ",");
     if(argc != 1)error("Argument count");
-    ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK);
+    ptr1 = findvar(argv[0], V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
     if(vartbl[VarIndex].type & T_INT) {
         if(vartbl[VarIndex].dims[1] != 0) error("Invalid variable");
         if(vartbl[VarIndex].dims[0] <= 0) {      // Not an array
@@ -1278,6 +1307,7 @@ void cmd_ireturn(void){
     TempMemoryIsChanged = true;                                     // signal that temporary memory should be checked
     *CurrentInterruptName = 0;                                        // for static vars we are not in an interrupt
 #ifndef PICOMITEVGA
+#ifndef PICOMITEWEB
     if(DelayedDrawKeyboard) {
         DrawKeyboard(1);                                            // the pop-up GUI keyboard should be drawn AFTER the pen down interrupt
         DelayedDrawKeyboard = false;
@@ -1286,6 +1316,7 @@ void cmd_ireturn(void){
         DrawFmtBox(1);                                              // the pop-up GUI keyboard should be drawn AFTER the pen down interrupt
         DelayedDrawFmtBox = false;
     }
+#endif
 #endif
 	if(SaveOptionErrorSkip>0)OptionErrorSkip=SaveOptionErrorSkip+1;
     strcpy(MMErrMsg , SaveErrorMessage);
@@ -1330,6 +1361,9 @@ void PO(char *s) {
 
 void PO2Str(char *s1, const char *s2) {
     PO(s1); MMPrintString((char *)s2); MMPrintString("\r\n");
+}
+void PO3Str(char *s1, const char *s2, const char *s3) {
+    PO(s1); MMPrintString((char *)s2); MMPrintString(", ");MMPrintString((char *)s3); MMPrintString("\r\n");
 }
 
 
@@ -1398,6 +1432,7 @@ void printoptions(void){
     if(Option.CPU_Speed!=126000)PO2Int("CPUSPEED (KHz)", Option.CPU_Speed);
     if(Option.DISPLAY_TYPE==COLOURVGA)PO2Str("DEFAULT MODE", "2");
     if(Option.Height != 40 || Option.Width != 80) PO3Int("DISPLAY", Option.Height, Option.Width);
+    if(Option.X_TILE==40)PO2Str("TILE SIZE", "LARGE");
     if(Option.VGAFC !=0xFFFF || Option.VGABC !=0){
         PO("DEFAULT COLOURS");
             if(Option.VGAFC==0xFFFF)MMPrintString("WHITE, ");
@@ -1449,7 +1484,7 @@ void printoptions(void){
             MMputchar(',',1);;MMPrintString((char *)PinDef[Option.LCD_CS].pinname);
         }
         if(!(Option.DISPLAY_TYPE<=I2C_PANEL || Option.DISPLAY_TYPE>=BufferedPanel ) && Option.DISPLAY_BL){
-            MMputchar(',',1);;MMPrintString((char *)PinDef[Option.DISPLAY_BL].pinname);
+            MMputchar(',',1);MMPrintString((char *)PinDef[Option.DISPLAY_BL].pinname);
         }
         if(Option.DISPLAY_TYPE==SSD1306SPI && Option.I2Coffset)PIntComma(Option.I2Coffset);
         if(Option.DISPLAY_TYPE==N5110 && Option.LCDVOP!=0xC8)PIntComma(Option.LCDVOP);
@@ -1460,14 +1495,30 @@ void printoptions(void){
         if(Option.DISPLAY_TYPE==SSD1306I2C && Option.I2Coffset)PIntComma(Option.I2Coffset);
         MMPrintString("\r\n");
     }
-    if(Option.DISPLAY_TYPE >= SSDPANEL) {
+    if(Option.DISPLAY_TYPE >= SSDPANEL && Option.DISPLAY_TYPE<VIRTUAL) {
         PO("LCDPANEL"); MMPrintString((char *)display_details[Option.DISPLAY_TYPE].name); MMPrintString(", "); MMPrintString((char *)OrientList[(int)i - 1]);
 		if(Option.DISPLAY_BL){
-            MMputchar(',',1);;MMPrintString((char *)PinDef[Option.DISPLAY_BL].pinname);
+            MMputchar(',',1);MMPrintString((char *)PinDef[Option.DISPLAY_BL].pinname);
 		}
         PRet();
     }
+    if(Option.DISPLAY_TYPE >= VIRTUAL){
+        PO("LCDPANEL"); MMPrintString((char *)display_details[Option.DISPLAY_TYPE].name); PRet();
+    } 
+    #ifdef PICOMITE
     if(Option.MaxCtrls)PO2Int("GUI CONTROLS", Option.MaxCtrls);
+    #endif
+    #ifdef PICOMITEWEB
+    if(*Option.SSID){
+        char password[]="****************************************************************";
+        password[strlen(Option.PASSWORD)]=0;
+        PO3Str("WIFI",Option.SSID,password);
+    }
+    if(Option.TCP_PORT && Option.ServerResponceTime!=5000)PO3Int("TCP SERVER PORT", Option.TCP_PORT, Option.ServerResponceTime);
+    if(Option.TCP_PORT && Option.ServerResponceTime==5000)PO2Int("TCP SERVER PORT", Option.TCP_PORT);
+    if(Option.Telnet==1)PO2Str("TELNET", "CONSOLE ON");
+    if(Option.Telnet==-1)PO2Str("TELNET", "CONSOLE ONLY");
+    #endif
     if(Option.TOUCH_CS) {
         PO("TOUCH"); 
         MMPrintString((char *)PinDef[Option.TOUCH_CS].pinname);MMputchar(',',1);;
@@ -1592,7 +1643,17 @@ void cmd_option(void) {
         OptionExplicit = true;
         return;
     }
+	tp = checkstring(cmdline, "ANGLE");
+	if(tp) {
+		if(checkstring(tp, "DEGREES"))	{ optionangle=RADCONV; return; }
+		if(checkstring(tp, "RADIANS"))	{ optionangle=1.0; return; }
+	}
 
+    tp = checkstring(cmdline, "ESCAPE");
+    if(tp) {
+        OptionEscape = true;
+        return;
+    }
     tp = checkstring(cmdline, "DEFAULT");
     if(tp) {
         if(checkstring(tp, "INTEGER"))  { DefaultType = T_INT;  return; }
@@ -1663,7 +1724,7 @@ void cmd_option(void) {
 	}
     tp = checkstring(cmdline, "KEYBOARD");
 	if(tp) {
-    	//if(CurrentLinePtr) error("Invalid in a program");
+    	if(CurrentLinePtr) error("Invalid in a program");
 		if(checkstring(tp, "DISABLE")){
 			Option.KeyboardConfig = NO_KEYBOARD;
 #ifndef NEXTDAY_SPEC
@@ -1725,6 +1786,7 @@ void cmd_option(void) {
 
     tp = checkstring(cmdline, "SERIAL CONSOLE");
     if(tp) {
+   	    if(CurrentLinePtr) error("Invalid in a program");
         unsigned char *p=NULL;
         if(checkstring(tp, "DISABLE")) {
             Option.SerialTX=0;
@@ -1785,6 +1847,7 @@ void cmd_option(void) {
         if(checkstring(tp, "OFF"))      Option.NoHeartbeat = 1; 
         if(checkstring(tp, "ON"))      Option.NoHeartbeat = 0; 
         SaveOptions();
+#ifndef PICOMITEWEB
         if(CheckPin(43, CP_NOABORT | CP_IGNORE_INUSE | CP_IGNORE_RESERVED)){
             if(Option.NoHeartbeat==0){
                 (PinDef[HEARTBEATpin].GPno);
@@ -1792,6 +1855,7 @@ void cmd_option(void) {
                 ExtCurrentConfig[PinDef[HEARTBEATpin].pin]=EXT_HEARTBEAT;
             } else ExtCfg(HEARTBEATpin, EXT_NOT_CONFIG, 0); 
         } else error("Pin %/| is reserved", HEARTBEATpin, HEARTBEATpin);
+#endif
         return;
     }
     tp = checkstring(cmdline, "LCDPANEL NOCONSOLE");
@@ -1851,10 +1915,10 @@ void cmd_option(void) {
         fcolour= (fcolour<<12) | (fcolour<<8) | (fcolour<<4) | fcolour;
         int bcolour = ((Option.DefaultBC & 0x800000)>> 20) | ((Option.DefaultBC & 0xC000)>>13) | ((Option.DefaultBC & 0x80)>>7);
         bcolour= (bcolour<<12) | (bcolour<<8) | (bcolour<<4) | bcolour;
-        for(int xp=0;xp<40;xp++){
-            for(int yp=0;yp<30;yp++){
-                tilefcols[yp*40+xp]=(uint16_t)fcolour;
-                tilebcols[yp*40+xp]=(uint16_t)bcolour;
+        for(int xp=0;xp<X_TILE;xp++){
+            for(int yp=0;yp<Y_TILE;yp++){
+                tilefcols[yp*X_TILE+xp]=(uint16_t)fcolour;
+                tilebcols[yp*Y_TILE+xp]=(uint16_t)bcolour;
             }
         }
         Option.VGAFC=fcolour;
@@ -1876,14 +1940,62 @@ void cmd_option(void) {
         if(checkstring(tp, "ON"))      { CMM1=1; return;  }
         error("Syntax");
     }
+#ifdef PICOMITEWEB
+    tp = checkstring(cmdline, "WIFI");
+    if(tp) {
+        getargs(&tp,3,",");
+        if(argc!=3)error("Syntax");
+   	    if(CurrentLinePtr) error("Invalid in a program");
+        char *ssid=GetTempMemory(STRINGSIZE);
+        char *password=GetTempMemory(STRINGSIZE);
+        strcpy(ssid,getCstring(argv[0]));
+        strcpy(password,getCstring(argv[2]));
+        if(strlen(ssid)>MAXKEYLEN-1)error("SSID too long, max 63 chars");
+        if(strlen(password)>MAXKEYLEN-1)error("Password too long, max 63 chars");
+        strcpy(Option.SSID,ssid);
+        strcpy(Option.PASSWORD,password);
+        SaveOptions();
+         _excep_code = RESET_COMMAND;
+        SoftReset();
+        return;
+    }
+    tp = checkstring(cmdline, "TCP SERVER PORT");
+    if(tp) {
+        getargs(&tp,3,",");
+   	    if(CurrentLinePtr) error("Invalid in a program");
+        Option.TCP_PORT=getint(argv[0],0,65535);
+        Option.ServerResponceTime=5000;
+        if(argc==3)Option.ServerResponceTime=getint(argv[2],1000,20000);
+        SaveOptions();
+         _excep_code = RESET_COMMAND;
+        SoftReset();
+        return;
+    }
+    tp = checkstring(cmdline, "TELNET CONSOLE");
+    if(tp) {
+   	    if(CurrentLinePtr) error("Invalid in a program");
+        if(checkstring(tp, "OFF"))Option.Telnet=0;
+        else if(checkstring(tp, "ON"))Option.Telnet=1;
+        else if(checkstring(tp, "ONLY")) Option.Telnet=-1;
+        else error("Syntax");
+        SaveOptions();
+         _excep_code = RESET_COMMAND;
+        SoftReset();
+        return;
+        error("Syntax");
+    }
 
+#endif
 
 #ifdef PICOMITEVGA
     tp = checkstring(cmdline, "CPUSPEED");
     if(tp) {
-        int CPU_Speed=getinteger(tp);
+   	    if(CurrentLinePtr) error("Invalid in a program");
+         int CPU_Speed=getinteger(tp);
         if(!(CPU_Speed==126000 || CPU_Speed==252000 || CPU_Speed==378000))error("CpuSpeed 126000, 252000 or 378000 only");
         Option.CPU_Speed=CPU_Speed;
+        Option.X_TILE=80;
+        Option.Y_TILE=40;
         SaveOptions();
         _excep_code = RESET_COMMAND;
         SoftReset();
@@ -1960,10 +2072,10 @@ void cmd_option(void) {
         if(backcol==forcol)error("Foreground and Background colours are the same");
         Option.VGABC=backcol;
         Option.VGAFC=forcol;
-        for(int x=0;x<40;x++){
-            for(int y=0;y<30;y++){
-                tilefcols[y*40+x]=Option.VGAFC;
-                tilebcols[y*40+x]=Option.VGABC;
+        for(int x=0;x<X_TILE;x++){
+            for(int y=0;y<Y_TILE;y++){
+                tilefcols[y*X_TILE+x]=Option.VGAFC;
+                tilebcols[y*X_TILE+x]=Option.VGABC;
             }
         }
         Option.DefaultBC=DefaultBC;
@@ -1974,27 +2086,22 @@ void cmd_option(void) {
         return;
     }
 #else
+#ifdef PICOMITE
     tp = checkstring(cmdline,"GUI CONTROLS");
     if(tp) {
         getargs(&tp, 1, ",");
-        Option.MaxCtrls=getint(argv[0],0,400);
+    	if(CurrentLinePtr) error("Invalid in a program");
+        Option.MaxCtrls=getint(argv[0],0,MAXCONTROLS-1);
+        if(Option.MaxCtrls)Option.MaxCtrls++;
         SaveOptions();
         _excep_code = RESET_COMMAND;
         SoftReset();
     }
-    tp = checkstring(cmdline, "DISPLAY");
-    if(tp) {
-        getargs(&tp, 3, ",");
-        if(Option.DISPLAY_CONSOLE) error("Cannot change LCD console");
-        Option.Height = getint(argv[0], 5, 100);
-        if(argc == 3) Option.Width = getint(argv[2], 37, 240);
-        setterminal();
-        SaveOptions();
-        return;
-    }
+#endif
     tp = checkstring(cmdline, "CPUSPEED");
     if(tp) {
-        Option.CPU_Speed=getint(tp,48000,MAX_CPU);
+   	    if(CurrentLinePtr) error("Invalid in a program");
+        Option.CPU_Speed=getint(tp,MIN_CPU,MAX_CPU);
         SaveOptions();
         _excep_code = RESET_COMMAND;
         SoftReset();
@@ -2026,6 +2133,7 @@ void cmd_option(void) {
 		} else {
             if(Option.DISPLAY_TYPE && !CurrentLinePtr) error("Display already configured");
             ConfigDisplaySPI(tp);
+            if(!Option.DISPLAY_TYPE)ConfigDisplayVirtual(tp);
             if(!Option.DISPLAY_TYPE)ConfigDisplaySSD(tp);
             if(!Option.DISPLAY_TYPE)ConfigDisplayI2C(tp);
         }
@@ -2036,7 +2144,7 @@ void cmd_option(void) {
     }
     tp = checkstring(cmdline, "TOUCH");
     if(tp) {
-      //if(CurrentLinePtr) error("Invalid in a program");
+      if(CurrentLinePtr) error("Invalid in a program");
       if(checkstring(tp, "DISABLE")) {
             TouchIrqPortAddr = 0;
             Option.TOUCH_Click = Option.TOUCH_CS = Option.TOUCH_IRQ = false;
@@ -2050,6 +2158,16 @@ void cmd_option(void) {
         return;
   }
 #endif
+    tp = checkstring(cmdline, "DISPLAY");
+    if(tp) {
+        getargs(&tp, 3, ",");
+        if(Option.DISPLAY_CONSOLE) error("Cannot change LCD console");
+        Option.Height = getint(argv[0], 5, 100);
+        if(argc == 3) Option.Width = getint(argv[2], 37, 240);
+        setterminal();
+        SaveOptions();
+        return;
+    }
     tp = checkstring(cmdline, "CASE");
     if(tp) {
         if(checkstring(tp, "LOWER"))    { Option.Listcase = CONFIG_LOWER; SaveOptions(); return; }
@@ -2123,14 +2241,16 @@ void cmd_option(void) {
     if(tp) {
         int pin1,pin2, slice;
         if(checkstring(tp, "DISABLE")){
-            disable_audio();
+   	        if(CurrentLinePtr) error("Invalid in a program");
+             disable_audio();
             SaveOptions();
             _excep_code = RESET_COMMAND;
             SoftReset();
             return;                                // this will restart the processor ? only works when not in debug
         }
     	getargs(&tp,3,",");
-        if(argc!=3)error("Syntax");
+   	    if(CurrentLinePtr) error("Invalid in a program");
+         if(argc!=3)error("Syntax");
         if(Option.AUDIO_L)error("Audio already configured");
         unsigned char code;
         if(!(code=codecheck(argv[0])))argv[0]+=2;
@@ -2158,7 +2278,8 @@ void cmd_option(void) {
     if(tp) {
         int pin1,pin2,channel=-1;
         if(checkstring(tp, "DISABLE")){
-#ifdef PICOMITEVGA
+   	    if(CurrentLinePtr) error("Invalid in a program");
+ #ifdef PICOMITEVGA
         if(Option.RTC_Clock || Option.RTC_Data)error("In use");
 #else
         if(Option.DISPLAY_TYPE == SSD1306I2C || Option.DISPLAY_TYPE == SSD1306I2C32 || Option.RTC_Clock || Option.RTC_Data)error("In use");
@@ -2170,7 +2291,8 @@ void cmd_option(void) {
             return;                                // this will restart the processor ? only works when not in debug
         }
     	getargs(&tp,3,",");
-        if(argc!=3)error("Syntax");
+   	    if(CurrentLinePtr) error("Invalid in a program");
+         if(argc!=3)error("Syntax");
         if(Option.SYSTEM_I2C_SCL)error("I2C already configured");
         unsigned char code;
         if(!(code=codecheck(argv[0])))argv[0]+=2;
@@ -2252,7 +2374,8 @@ void cmd_option(void) {
     if(tp) {
         int pin1,pin2,pin3;
         if(checkstring(tp, "DISABLE")){
-        if((Option.SD_CS && Option.SD_CLK_PIN==0) || Option.TOUCH_CS || Option.LCD_CS)error("In use");
+   	    if(CurrentLinePtr) error("Invalid in a program");
+         if((Option.SD_CS && Option.SD_CLK_PIN==0) || Option.TOUCH_CS || Option.LCD_CS)error("In use");
             disable_systemspi();
             SaveOptions();
             _excep_code = RESET_COMMAND;
@@ -2260,7 +2383,8 @@ void cmd_option(void) {
             return;                                // this will restart the processor ? only works when not in debug
         }
     	getargs(&tp,5,",");
-        if(argc!=5)error("Syntax");
+   	    if(CurrentLinePtr) error("Invalid in a program");
+         if(argc!=5)error("Syntax");
         if(Option.SYSTEM_CLK)error("SDcard already configured");
         unsigned char code;
         if(!(code=codecheck(argv[0])))argv[0]+=2;
@@ -2304,7 +2428,8 @@ void cmd_option(void) {
 #else
         if(!(argc==1 || argc==7))error("Syntax");
 #endif
-        if(Option.SD_CS)error("SDcard already configured");
+   	    if(CurrentLinePtr) error("Invalid in a program");
+         if(Option.SD_CS)error("SDcard already configured");
         if(argc==1 && !Option.SYSTEM_CLK)error("System SPI not configured");
         unsigned char code;
         if(!(code=codecheck(argv[0])))argv[0]+=2;
@@ -2341,12 +2466,14 @@ void cmd_option(void) {
     }
 	tp = checkstring(cmdline, "RESET");
     if(tp) {
+   	    if(CurrentLinePtr) error("Invalid in a program");
         ResetOptions();
         _excep_code = RESET_COMMAND;
         SoftReset();
     }
-     
-
+#ifdef PICOMITEWEB
+    checkTCPOptions();
+#endif     
     error("Invalid Option");
 }
 
@@ -2354,8 +2481,12 @@ void fun_device(void){
     sret = GetTempMemory(STRINGSIZE);                                        // this will last for the life of the command
 #ifdef PICOMITEVGA
     strcpy(sret, "PicoMiteVGA");
-#else
+#endif
+#ifdef PICOMITE
     strcpy(sret, "PicoMite");
+#endif
+#ifdef PICOMITEWEB
+    strcpy(sret, "PicoMiteWeb");
 #endif
     CtoM(sret);
     targ = T_STR;
@@ -2368,6 +2499,61 @@ uint32_t __get_MSP(void)
   __asm volatile ("MRS %0, msp" : "=r" (result) );
   return(result);
 }
+int ExistsFile(char *p){
+    char q[FF_MAX_LFN]={0};
+    int retval=0;
+    int waste=0, t=FatFSFileSystem+1;
+    t = drivecheck(p,&waste);
+    p+=waste;
+    getfullfilename(p,q);
+    FatFSFileSystem=t-1;
+    if(FatFSFileSystem==0){
+        struct lfs_info lfsinfo;
+        memset(&lfsinfo,0,sizeof(DIR));
+        FSerror = lfs_stat(&lfs, q, &lfsinfo);
+        if(lfsinfo.type==LFS_TYPE_REG)retval= 1;
+    } else {
+        DIR djd;
+        FILINFO fnod;
+        memset(&djd,0,sizeof(DIR));
+        memset(&fnod,0,sizeof(FILINFO));
+        if(!InitSDCard()) return -1;
+        FSerror = f_stat(q, &fnod);
+        if(FSerror != FR_OK)iret=0;
+        else if(!(fnod.fattrib & AM_DIR))retval=1;
+    }
+    FatFSFileSystem=FatFSFileSystemSave;
+    return retval;
+}
+int ExistsDir(char *p, char *q, int *filesystem){
+    int ireturn=0;
+    ireturn=0;
+    int localfilesystemsave=FatFSFileSystem;
+    int waste=0, t=FatFSFileSystem+1;
+    t = drivecheck(p,&waste);
+    p+=waste;
+    getfullfilename(p,q);
+    FatFSFileSystem=t-1;
+    *filesystem=FatFSFileSystem;
+    if(FatFSFileSystem==0){
+        struct lfs_info lfsinfo;
+        memset(&lfsinfo,0,sizeof(DIR));
+        FSerror = lfs_stat(&lfs, q, &lfsinfo);
+        if(lfsinfo.type==LFS_TYPE_DIR)ireturn= 1;
+    } else {
+        if(strcmp(q,"/")==0)return 1;
+        DIR djd;
+        FILINFO fnod;
+        memset(&djd,0,sizeof(DIR));
+        memset(&fnod,0,sizeof(FILINFO));
+        if(!InitSDCard()) {FatFSFileSystem=localfilesystemsave;ireturn= -1; return ireturn;}
+        FSerror = f_stat(q, &fnod);
+        if(FSerror != FR_OK)ireturn=0;
+        else if((fnod.fattrib & AM_DIR))ireturn=1;
+    }
+    FatFSFileSystem=localfilesystemsave;
+    return ireturn;
+}
 
 void fun_info(void){
     unsigned char *tp;
@@ -2378,6 +2564,19 @@ void fun_info(void){
         CtoM(sret);
         targ=T_STR;
         return;
+#ifdef PICOMITEWEB
+    } else if((tp=checkstring(ep, "TCP REQUEST"))){
+        int i=getint(tp,1,MaxPcb)-1;
+        iret=TCPstate->inttrig[i];
+        targ=T_INT;
+        return;
+#endif
+#ifdef PICOMITEVGA
+    } else if((tp=checkstring(ep, "TILE HEIGHT"))){
+        iret=ytilecount;
+        targ=T_INT;
+        return;
+#endif
     } else if(checkstring(ep, "BCOLOUR") || checkstring(ep, "BCOLOR")){
             iret=gui_bcolour;
             targ=T_INT;
@@ -2436,58 +2635,16 @@ void fun_info(void){
             targ=T_INT;
             return;
         } else if((tp=checkstring(ep, "EXISTS DIR"))){
-            char q[FF_MAX_LFN]={0};
-            targ=T_INT;
-            iret=0;
-            int waste=0, t=FatFSFileSystem+1;
+            char dir[FF_MAX_LFN]={0};
             char *p = getCstring(tp);
-            t = drivecheck(p,&waste);
-            p+=waste;
-            getfullfilename(p,q);
-            FatFSFileSystem=t-1;
-            if(FatFSFileSystem==0){
-                struct lfs_info lfsinfo;
-                memset(&lfsinfo,0,sizeof(DIR));
-                FSerror = lfs_stat(&lfs, q, &lfsinfo);
-                if(lfsinfo.type==LFS_TYPE_DIR)iret= 1;
-            } else {
-                DIR djd;
-                FILINFO fnod;
-                memset(&djd,0,sizeof(DIR));
-                memset(&fnod,0,sizeof(FILINFO));
-                if(!InitSDCard()) {iret= -1; return;}
-                FSerror = f_stat(q, &fnod);
-                if(FSerror != FR_OK)iret=0;
-                else if((fnod.fattrib & AM_DIR))iret=1;
-            }
-            FatFSFileSystem=FatFSFileSystemSave;
+            int filesystem;
+            targ=T_INT;
+            iret=ExistsDir(p,dir,&filesystem);
             return;
         } else if((tp=checkstring(ep, "EXISTS FILE"))){
-            char q[FF_MAX_LFN]={0};
-            targ=T_INT;
-            iret=0;
-            int waste=0, t=FatFSFileSystem+1;
             char *p = getCstring(tp);
-            t = drivecheck(p,&waste);
-            p+=waste;
-            getfullfilename(p,q);
-            FatFSFileSystem=t-1;
-            if(FatFSFileSystem==0){
-                struct lfs_info lfsinfo;
-                memset(&lfsinfo,0,sizeof(DIR));
-                FSerror = lfs_stat(&lfs, q, &lfsinfo);
-                if(lfsinfo.type==LFS_TYPE_REG)iret= 1;
-            } else {
-                DIR djd;
-                FILINFO fnod;
-                memset(&djd,0,sizeof(DIR));
-                memset(&fnod,0,sizeof(FILINFO));
-                if(!InitSDCard()) {iret= -1; return;}
-                FSerror = f_stat(q, &fnod);
-                if(FSerror != FR_OK)iret=0;
-                else if(!(fnod.fattrib & AM_DIR))iret=1;
-            }
-            FatFSFileSystem=FatFSFileSystemSave;
+            iret=ExistsFile(p);
+            targ=T_INT;
             return;
         } else if(checkstring(ep, "ERRMSG")){
             int i=OptionFileErrorAbort;
@@ -2524,8 +2681,8 @@ void fun_info(void){
             if(FatFSFileSystem==0){
                 struct lfs_info lfsinfo;
                 FSerror = lfs_stat(&lfs, q, &lfsinfo);
-                if(lfsinfo.type==LFS_TYPE_DIR){iret= -2; return;}
-                if(FSerror){iret= -1; return;}
+                if(lfsinfo.type==LFS_TYPE_DIR){iret= -2; strcpy(MMErrMsg,FErrorMsg[4]); return;}
+                if(FSerror){iret= -1; strcpy(MMErrMsg,FErrorMsg[4]); return;}
                 int fnbr=FindFreeFileNbr();
                 iret=BasicFileOpen(p,fnbr,FA_READ);
                 if(iret==false){
@@ -2599,7 +2756,31 @@ void fun_info(void){
         CtoM(sret);
         targ=T_STR;
         return;
+#ifdef PICOMITEWEB
+    } else if(checkstring(ep,"IP ADDRESS")){  
+        strcpy(sret,ip4addr_ntoa(netif_ip4_addr(netif_list)));
+        CtoM(sret);
+        targ=T_STR;
+        return;
+    } else if(checkstring(ep,"MAX CONNECTIONS")){  
+        iret=MaxPcb;
+        targ=T_INT;
+        return;
+    } else if(checkstring(ep,"WIFI STATUS")){  
+        iret=cyw43_wifi_link_status(&cyw43_state,CYW43_ITF_STA);
+        targ=T_INT;
+        return;
+    } else if(checkstring(ep,"TCPIP STATUS")){  
+        iret=cyw43_tcpip_link_status(&cyw43_state,CYW43_ITF_STA);
+        targ=T_INT;
+        return;
+#endif
     } 
+    else if(checkstring(ep, "INTERRUPTS")){
+    iret=(int64_t)(uint32_t)*((io_rw_32 *) (PPB_BASE + M0PLUS_NVIC_ISER_OFFSET));
+    targ=T_INT;
+    return;
+    }
 #ifndef PICOMITEVGA
     else if(checkstring(ep, "LCDPANEL")){
         strcpy(sret,display_details[Option.DISPLAY_TYPE].name);
@@ -2669,6 +2850,9 @@ void fun_info(void){
 			iret=BreakKey;
 			targ=T_INT;
 			return;
+		} else if(checkstring(tp, "ANGLE")){
+			if(optionangle==1.0)strcpy(sret,"DEGREES");
+			else strcpy(sret,"RADIANS");
  		} else if(checkstring(tp, "DEFAULT")){
 			if(DefaultType == T_INT)strcpy(sret,"Integer");
 			else if(DefaultType == T_NBR)strcpy(sret,"Float");
@@ -2695,6 +2879,14 @@ void fun_info(void){
             iret= 1 << rxbuf[3];
 			targ=T_INT;
 			return;
+        } else if(checkstring(tp, "HEIGHT")){
+            iret = Option.Height;
+            targ = T_INT;
+            return;
+        } else if(checkstring(tp, "WIDTH")){
+            iret = Option.Width;
+            targ = T_INT;
+            return;
 		} else error("Syntax");
     } else if(*ep=='p' || *ep=='P'){
         if(tp=checkstring(ep, "PINNO")){
@@ -2718,6 +2910,28 @@ void fun_info(void){
             if(!code)pin=codemap(pin);
             if(IsInvalidPin(pin))error("Invalid pin");
             iret=pin;
+            targ=T_INT;
+            return;
+        } else if(tp=checkstring(ep, "PIO RX DMA")){
+            iret=dma_channel_is_busy(dma_rx_chan);
+            targ=T_INT;
+            return;
+        } else if(tp=checkstring(ep, "PIO TX DMA")){
+            iret=dma_channel_is_busy(dma_tx_chan);
+            targ=T_INT;
+            return;
+        } else if(tp=checkstring(ep, "PWM COUNT")){
+            int channel=getint(tp,0,7);
+            iret=pwm_hw->slice[channel].top;
+            targ=T_INT;
+            return;
+        } else if(tp=checkstring(ep, "PWM DUTY")){
+            getargs(&tp,3,",");
+            if(argc!=3)error("Syntax");
+            int channel=getint(argv[0],0,7);
+            int AorB=getint(argv[2],0,1);
+            if(AorB)iret=((pwm_hw->slice[channel].cc) >> 16);
+            else iret=(pwm_hw->slice[channel].cc & 0xFFFF);
             targ=T_INT;
             return;
         } else if(tp=checkstring(ep, "PIN")){
@@ -2770,6 +2984,10 @@ void fun_info(void){
             iret = (int64_t)(uint32_t)systick_hw->cvr;
             targ = T_INT;
             return;
+        } else if(checkstring(ep, "SYSTEM HEAP")){
+            iret = (int64_t)(uint32_t)getFreeHeap();
+            targ=T_INT;
+            return;
         } else if(checkstring(ep, "SOUND")){
             switch(CurrentlyPlaying){
             case P_NOTHING:strcpy(sret,"OFF");break;
@@ -2821,6 +3039,10 @@ void fun_info(void){
             targ=T_INT;
             return;
         } else error("Syntax");
+	} else if(checkstring(ep, "WRITEBUFF")){
+        iret=(int64_t)((uint32_t)WriteBuf);
+        targ=T_INT;
+        return;
     } else error("Syntax");
 }
 
@@ -2924,7 +3146,7 @@ void cmd_poke(void) {
         } else {
             getargs(&p,(MAX_ARG_COUNT * 2) - 3,",");
             if(!argc)return;
-            if(Option.DISPLAY_TYPE>=SSDPANEL){
+            if(Option.DISPLAY_TYPE>=SSDPANEL && Option.DISPLAY_TYPE<VIRTUAL){
                 WriteCommand(getinteger(argv[0]));
                 for(int i = 2; i < argc; i += 2) {
                     WriteData(getinteger(argv[i]));
@@ -3039,7 +3261,35 @@ void fun_peek(void) {
     unsigned char *p;
     void *pp;
     getargs(&ep, 3, ",");
-
+    if((p = checkstring(argv[0], "BP"))){
+        if(argc != 1) error("Syntax");
+        uint8_t *ptr1 = (uint8_t *)findvar(p, V_FIND  | V_NOFIND_ERR);
+        if(!(vartbl[VarIndex].type & T_INT))error("Not integer variable");
+        iret = *(unsigned char *)(uint32_t)vartbl[VarIndex].val.i;
+        vartbl[VarIndex].val.i++;
+        targ = T_INT;
+        return;
+    }
+    if((p = checkstring(argv[0], "WP"))){
+        if(argc != 1) error("Syntax");
+        uint32_t *ptr1 = (uint32_t *)findvar(p, V_FIND  | V_NOFIND_ERR);
+        if(!(vartbl[VarIndex].type & T_INT))error("Not integer variable");
+        if(vartbl[VarIndex].val.i & 3)error("Not on word boundary");
+        iret = *(unsigned int *)(uint32_t)vartbl[VarIndex].val.i;
+        vartbl[VarIndex].val.i+=4;
+        targ = T_INT;
+        return;
+    }
+    if((p = checkstring(argv[0], "SP"))){
+        if(argc != 1) error("Syntax");
+        uint16_t *ptr1 = (uint16_t *)findvar(p, V_FIND  | V_NOFIND_ERR);
+        if(!(vartbl[VarIndex].type & T_INT))error("Not integer variable");
+        if(vartbl[VarIndex].val.i & 1)error("Not on short boundary");
+        iret = *(unsigned short *)(uint32_t)vartbl[VarIndex].val.i;
+        vartbl[VarIndex].val.i+=2;
+        targ = T_INT;
+        return;
+    }
     if((p = checkstring(argv[0], "BYTE"))){
         if(argc != 1) error("Syntax");
         iret = *(unsigned char *)GetPeekAddr(p);
@@ -3062,6 +3312,14 @@ void fun_peek(void) {
         return;
         }
 
+    if((p = checkstring(argv[0], "VARHEADER"))){
+        if(argc != 1) error("Syntax");
+        pp = findvar(p, V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
+        iret = (unsigned int)&vartbl[VarIndex].name[0];
+        targ = T_INT;
+        return;
+        }
+        
     if((p = checkstring(argv[0], "CFUNADDR"))){
     	int i,j;
         if(argc != 1) error("Syntax");
@@ -3200,8 +3458,50 @@ int checkdetailinterrupts(void) {
         PS2int=false;
         goto GotAnInterrupt;
     }
-
-#ifndef PICOMITEVGA
+    if(piointerrupt){  // have any PIO interrupts been set
+#ifdef PICOMITE
+        for(int pio=0 ;pio<2;pio++){
+            PIO pioinuse=(pio==0 ? pio0 :pio1);
+            for(int sm=0;sm<4;sm++){
+                int TXlevel=((pioinuse->flevel)>>(sm*4)) & 0xf;
+                int RXlevel=((pioinuse->flevel)>>(sm*4+4)) & 0xf;
+                if(RXlevel && pioRXinterrupts[sm][pio]){ //is there a character in the buffer and has an interrupt been set?
+                    intaddr=pioRXinterrupts[sm][pio];
+                    goto GotAnInterrupt;
+                }
+                if(TXlevel && pioTXinterrupts[sm][pio]){
+                    int full=(pioinuse->sm->shiftctrl & (1<<30))  ? 8 : 4;
+                    if(TXlevel != full && pioTXlast[sm][pio]==full){ // was the buffer full last time and not now and is an interrupt set?
+                        intaddr=pioTXinterrupts[sm][pio];
+                        pioTXlast[sm][pio]=TXlevel;
+                        goto GotAnInterrupt;
+                    }
+                }
+                pioTXlast[sm][pio]=TXlevel;
+            }
+        }
+#else
+        PIO pioinuse=pio1;
+        for(int sm=0;sm<4;sm++){
+            int TXlevel=((pioinuse->flevel)>>(sm*4)) & 0xf;
+            int RXlevel=((pioinuse->flevel)>>(sm*4+4)) & 0xf;
+            if(RXlevel && pioRXinterrupts[sm]){ //is there a character in the buffer and has an interrupt been set?
+                intaddr=pioRXinterrupts[sm];
+                goto GotAnInterrupt;
+            }
+            if(TXlevel && pioTXinterrupts[sm]){
+                int full=(pioinuse->sm->shiftctrl & (1<<30))  ? 8 : 4;
+                if(TXlevel != full && pioTXlast[sm]==full){ // was the buffer full last time and not now and is an interrupt set?
+                    intaddr=pioTXinterrupts[sm];
+                    pioTXlast[sm]=TXlevel;
+                    goto GotAnInterrupt;
+                }
+            }
+            pioTXlast[sm]=TXlevel;
+        }
+#endif
+    }
+#ifdef PICOMITE
     if(Ctrl!=NULL){
         if(gui_int_down && GuiIntDownVector) {                          // interrupt on pen down
             intaddr = GuiIntDownVector;                                 // get a pointer to the interrupt routine
@@ -3215,13 +3515,47 @@ int checkdetailinterrupts(void) {
             goto GotAnInterrupt;
         }
     }
-#else
+#endif
+#ifdef PICOMITEVGA
     if (COLLISIONInterrupt != NULL && CollisionFound) {
         CollisionFound = false;
         intaddr = (unsigned char *)COLLISIONInterrupt;									    // set the next stmt to the interrupt location
         goto GotAnInterrupt;
     }
 #endif
+    if(DMAinterruptRX){
+        if(!dma_channel_is_busy(dma_rx_chan)){
+            PIO pio = (dma_rx_pio ? pio1: pio0);
+            intaddr = (unsigned char *)DMAinterruptRX;
+            DMAinterruptRX=NULL;
+            pio_sm_set_enabled(pio, dma_rx_sm, false);
+            goto GotAnInterrupt;
+        }
+    }
+    if(DMAinterruptTX){
+        if(!dma_channel_is_busy(dma_tx_chan)){
+            PIO pio = (dma_tx_pio ? pio1: pio0);
+            if((pio->flevel>>(dma_tx_sm*8) & 0xf)==0){
+                intaddr = (unsigned char *)DMAinterruptTX;
+                DMAinterruptTX=NULL;
+                pio_sm_set_enabled(pio, dma_tx_sm, false);
+                goto GotAnInterrupt;
+            }
+        }
+    }
+#ifdef PICOMITEWEB
+    if(TCPreceived && TCPreceiveInterrupt){
+        intaddr = TCPreceiveInterrupt;                                   // get a pointer to the interrupt routine
+        TCPreceived=0;
+        goto GotAnInterrupt;
+    }
+    if(MQTTComplete && MQTTInterrupt != NULL) {
+        MQTTComplete = false;
+        intaddr = MQTTInterrupt;                                      // set the next stmt to the interrupt location
+        goto GotAnInterrupt;
+    }
+#endif
+
     if(ADCInterrupt && dmarunning){
         if(!dma_channel_is_busy(dma_chan)){
             __compiler_memory_barrier();
@@ -3239,7 +3573,6 @@ int checkdetailinterrupts(void) {
         intaddr = ADCInterrupt;                                   // get a pointer to the interrupt routine
         dmarunning=0;
         FreeMemory((void *)ADCbuffer);
-        dma_channel_unclaim(dma_chan);
         goto GotAnInterrupt;
         }
     }
@@ -3352,7 +3685,7 @@ GotAnInterrupt:
     return 1;
 }
 int __not_in_flash_func(check_interrupt)(void) {
-#ifndef PICOMITEVGA
+#ifdef PICOMITE
     if(Ctrl!=NULL){
         if(!(DelayedDrawKeyboard || DelayedDrawFmtBox || calibrate) )ProcessTouch();
         if(CheckGuiFlag) CheckGui();                                    // This implements a LED flash

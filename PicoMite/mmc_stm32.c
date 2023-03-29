@@ -45,6 +45,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 #include "hardware/irq.h"
 #include "hardware/spi.h"
 #include "hardware/i2c.h"
+#ifdef PICOMITEWEB
+#include "pico/cyw43_arch.h"
+#endif
 //#include "integer.h"
 int SPISpeed=0xFF;
 //#define SD_CS_PIN Option.SD_CS
@@ -81,6 +84,8 @@ int SPI0locked=0;
 int SPI1locked=0;
 int BacklightSlice=-1;
 int BacklightChannel=-1;
+extern const unsigned short whitenoise[2];
+
 void DefaultAudio(uint16_t left, uint16_t right){
 	pwm_set_both_levels(AUDIO_SLICE,left,right);
 }
@@ -194,22 +199,46 @@ void __not_in_flash_func(on_pwm_wrap)(void) {
         	}
         }
     } else if(CurrentlyPlaying == P_SOUND) {
+    	static int noisedwellleft[MAXSOUNDS]={0}, noisedwellright[MAXSOUNDS]={0};
+    	static uint32_t noiseleft[MAXSOUNDS]={0}, noiseright[MAXSOUNDS]={0};
     	int i,j;
     	int leftv=0, rightv=0;
     	for(i=0;i<MAXSOUNDS;i++){ //first update the 8 sound pointers
     		if(sound_mode_left[i]!=nulltable){
-				sound_PhaseAC_left[i] = sound_PhaseAC_left[i] + sound_PhaseM_left[i];
-				if(sound_PhaseAC_left[i]>=4096.0)sound_PhaseAC_left[i]-=4096.0;
-				j = (int)sound_mode_left[i][(int)sound_PhaseAC_left[i]];
-				j= (j-2000)*mapping[sound_v_left[i]]/2000;
-				leftv+=j;
+				if(sound_mode_left[i]!=whitenoise){
+					sound_PhaseAC_left[i] = sound_PhaseAC_left[i] + sound_PhaseM_left[i];
+					if(sound_PhaseAC_left[i]>=4096.0)sound_PhaseAC_left[i]-=4096.0;
+					j = (int)sound_mode_left[i][(int)sound_PhaseAC_left[i]];
+					j= (j-2000)*mapping[sound_v_left[i]]/2000;
+					leftv+=j;
+				} else {
+    				if(noisedwellleft[i]<=0){
+    					noisedwellleft[i]=sound_PhaseM_left[i];
+    				    noiseleft[i]=rand() % 3800+100;
+    				}
+    				if(noisedwellleft[i])noisedwellleft[i]--;
+    				j = (int)noiseleft[i];
+    				j= (j-2000)*mapping[sound_v_left[i]]/2000;
+    				leftv+=j;
+    			}
     		}
     		if(sound_mode_right[i]!=nulltable){
-				sound_PhaseAC_right[i] = sound_PhaseAC_right[i] + sound_PhaseM_right[i];
-				if(sound_PhaseAC_right[i]>=4096.0)sound_PhaseAC_right[i]-=4096.0;
-				j = (int)sound_mode_right[i][(int)sound_PhaseAC_right[i]];
-				j= (j-2000)*mapping[sound_v_right[i]]/2000;
-				rightv += j;
+    			if(sound_mode_right[i]!=whitenoise){
+					sound_PhaseAC_right[i] = sound_PhaseAC_right[i] + sound_PhaseM_right[i];
+					if(sound_PhaseAC_right[i]>=4096.0)sound_PhaseAC_right[i]-=4096.0;
+					j = (int)sound_mode_right[i][(int)sound_PhaseAC_right[i]];
+					j= (j-2000)*mapping[sound_v_right[i]]/2000;
+					rightv += j;
+				}  else {
+    				if(noisedwellright[i]<=0){
+    					noisedwellright[i]=sound_PhaseM_right[i];
+    				    noiseright[i]=rand() % 3800+100;
+    				}
+    				if(noisedwellright[i])noisedwellright[i]--;
+    				j = (int)noiseright[i];
+    				j= (j-2000)*mapping[sound_v_right[i]]/2000;
+    				rightv+=j;
+    			}
    			}
     	}
 		leftv+=2000;
@@ -227,7 +256,11 @@ void __not_in_flash_func(on_pwm_wrap)(void) {
 	AudioOutput(left,right);
 }
 
+#ifdef PICOMITEVGA
 void __not_in_flash_func(BitBangSendSPI)(const BYTE *buff, int cnt){
+#else
+void BitBangSendSPI(const BYTE *buff, int cnt){
+#endif
 	int i, SPICount;
 	BYTE SPIData;
     if(SD_SPI_SPEED==SD_SLOW_SPI_SPEED){
@@ -278,7 +311,11 @@ void __not_in_flash_func(BitBangSendSPI)(const BYTE *buff, int cnt){
     	}
 	}
 }
+#ifdef PICOMITEVGA
 void __not_in_flash_func(BitBangReadSPI)(BYTE *buff, int cnt){
+#else
+void BitBangReadSPI(BYTE *buff, int cnt){
+#endif
 	int i, SPICount;
 	BYTE SPIData;
 	gpio_put(SD_CLK_PIN,GPIO_PIN_RESET);
@@ -327,7 +364,11 @@ void __not_in_flash_func(BitBangReadSPI)(BYTE *buff, int cnt){
     }
 }
 
+#ifdef PICOMITEVGA
 BYTE __not_in_flash_func(BitBangSwapSPI)(BYTE data_out){
+#else
+BYTE BitBangSwapSPI(BYTE data_out){
+#endif
 	BYTE data_in=0;
 	int SPICount;
 	if(SD_SPI_SPEED==SD_SLOW_SPI_SPEED){
@@ -469,7 +510,11 @@ int wait_ready (void)
 /*-----------------------------------------------------------------------*/
 
 static
+#ifdef PICOMITEVGA
 void __not_in_flash_func(deselect)(void)
+#else
+void deselect(void)
+#endif
 {
 //	asm("NOP");asm("NOP");//asm("NOP");
 	gpio_put(SD_CS_PIN,GPIO_PIN_SET);
@@ -484,7 +529,12 @@ void __not_in_flash_func(deselect)(void)
 /*-----------------------------------------------------------------------*/
 
 
+static
+#ifdef PICOMITEVGA
 int __not_in_flash_func(selectSD)(void)	/* 1:Successful, 0:Timeout */
+#else
+int selectSD(void)	/* 1:Successful, 0:Timeout */
+#endif
 {
 	if(SD_SPI_SPEED==SD_SLOW_SPI_SPEED)	SPISpeedSet(SDSLOW);
 	else SPISpeedSet(SDFAST);
@@ -505,7 +555,12 @@ int __not_in_flash_func(selectSD)(void)	/* 1:Successful, 0:Timeout */
 /*-----------------------------------------------------------------------*/
 
 
+static
+#ifdef PICOMITEVGA
 int __not_in_flash_func(rcvr_datablock)(	/* 1:OK, 0:Failed */
+#else
+int rcvr_datablock(	/* 1:OK, 0:Failed */
+#endif
 	BYTE *buff,			/* Data buffer to store received data */
 	UINT btr			/* Byte count (must be multiple of 4) */
 )
@@ -535,7 +590,12 @@ int __not_in_flash_func(rcvr_datablock)(	/* 1:OK, 0:Failed */
 
 
 
+static
+#ifdef PICOMITEVGA
 int __not_in_flash_func(xmit_datablock)(	/* 1:OK, 0:Failed */
+#else
+int xmit_datablock(	/* 1:OK, 0:Failed */
+#endif
 	const BYTE *buff,	/* 512 byte data block to be transmitted */
 	BYTE token			/* Data token */
 )
@@ -712,7 +772,11 @@ DSTATUS disk_initialize (
 /* Read Sector(s)                                                        */
 /*-----------------------------------------------------------------------*/
 
+#ifdef PICOMITEVGA
 DRESULT __not_in_flash_func(disk_read)(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count)
+#else
+DRESULT disk_read(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count)
+#endif
 {
 	if (pdrv || !count) return RES_PARERR;
 	if (SDCardStat & STA_NOINIT) return RES_NOTRDY;
@@ -745,7 +809,11 @@ DRESULT __not_in_flash_func(disk_read)(BYTE pdrv, BYTE* buff, LBA_t sector, UINT
 /*-----------------------------------------------------------------------*/
 
 
+#ifdef PICOMITEVGA
 DRESULT __not_in_flash_func(disk_write)(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count)
+#else
+DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count)
+#endif
 {
 	if (pdrv || !count) return RES_PARERR;
 	if (SDCardStat & STA_NOINIT) return RES_NOTRDY;
@@ -782,7 +850,11 @@ DRESULT __not_in_flash_func(disk_write)(BYTE pdrv, const BYTE* buff, LBA_t secto
 /*-----------------------------------------------------------------------*/
 
 
+#ifdef PICOMITEVGA
 DRESULT __not_in_flash_func(disk_ioctl)(
+#else
+DRESULT disk_ioctl(
+#endif
 	BYTE pdrv,		/* Physical drive nmuber (0) */
 	BYTE cmd,		/* Control code */
 	void *buff		/* Buffer to send/receive data block */
@@ -936,7 +1008,7 @@ void InitReservedIO(void) {
 		ExtCfg(26, EXT_BOOT_RESERVED, 0);
 		ExtCfg(27, EXT_BOOT_RESERVED, 0);
 #else
-	if(Option.DISPLAY_TYPE>=SSDPANEL){
+	if(Option.DISPLAY_TYPE>=SSDPANEL && Option.DISPLAY_TYPE<VIRTUAL){
 		ExtCfg(SSD1963_DC_PIN, EXT_BOOT_RESERVED, 0);gpio_init(SSD1963_DC_GPPIN);gpio_put(SSD1963_DC_GPPIN,GPIO_PIN_SET);gpio_set_dir(SSD1963_DC_GPPIN, GPIO_OUT);
 		ExtCfg(SSD1963_RESET_PIN, EXT_BOOT_RESERVED, 0);gpio_init(SSD1963_RESET_GPPIN);gpio_put(SSD1963_RESET_GPPIN,GPIO_PIN_SET);gpio_set_dir(SSD1963_RESET_GPPIN, GPIO_OUT);
 		ExtCfg(SSD1963_WR_PIN, EXT_BOOT_RESERVED, 0);gpio_init(SSD1963_WR_GPPIN);gpio_put(SSD1963_WR_GPPIN,GPIO_PIN_SET);gpio_set_dir(SSD1963_WR_GPPIN, GPIO_OUT);
@@ -1235,6 +1307,7 @@ void InitReservedIO(void) {
 		irq_set_priority(PWM_IRQ_WRAP,255);
 		pwm_set_enabled(AUDIO_SLICE, true);
 	}
+#ifndef PICOMITEWEB
 	if(Option.PWM){
 		gpio_init(23);
 		gpio_put(23,GPIO_PIN_SET);
@@ -1244,8 +1317,8 @@ void InitReservedIO(void) {
 		gpio_put(23,GPIO_PIN_RESET);
 		gpio_set_dir(23, GPIO_OUT);
 	}
+#endif
 	if(Option.SerialConsole){
-//		printf("here\r\n");
 		ExtCfg(Option.SerialTX, EXT_BOOT_RESERVED, 0);
 		ExtCfg(Option.SerialRX, EXT_BOOT_RESERVED, 0);
 		gpio_set_function(PinDef[Option.SerialTX].GPno, GPIO_FUNC_UART);
