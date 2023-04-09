@@ -14,6 +14,34 @@ Compiled version and documentation is available on https://geoffg.net/picomite.h
 
 Change list from V5.07.00
 **********************************************************************************************************************
+PicoMite V5.07.07RC2
+
+Fix to DATA/READ/RESTORE in library
+
+PicoMite V5.07.07RC1
+
+Support for FLAC playback
+
+PicoMite V5.07.07b34
+
+Support for mono output from PLAY SOUND
+LIBRARY LIST ALL implemented
+
+PicoMite V5.07.07b33
+
+Support for MCP4822 DAC for audio output
+
+PicoMite V5.07.07b32
+
+Improved sound handling
+
+PicoMite V5.07.07b31
+
+Support for I2C micro keyboard
+
+PicoMite V5.07.07b30
+
+Library command incorporated
 
 PicoMite V5.07.07b28
 

@@ -36,6 +36,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 #define DR_WAV_NO_SIMD
 #define DR_WAV_NO_STDIO
 #include "dr_wav.h"
+#define DR_FLAC_IMPLEMENTATION
+#define DR_FLAC_NO_STDIO
+#define DR_FLAC_NO_CRC
+#define DR_FLAC_NO_SIMD
+#define DR_FLAC_NO_OGG
+#include "dr_flac.h"
 extern BYTE MDD_SDSPI_CardDetectState(void);
 #define MAXALBUM 20
 extern int InitSDCard(void);
@@ -82,7 +88,7 @@ volatile int tickspersample;
 char *WAVInterrupt = NULL;
 int WAVcomplete;
 int WAV_fnbr=0;
-int PWM_FREQ=44100;
+int PWM_FREQ;
 volatile int swingbuf = 0,nextbuf = 0, playreadcomplete = 1;
 char *sbuff1=NULL, *sbuff2=NULL;
 uint16_t *ibuff1, *ibuff2;
@@ -105,11 +111,13 @@ volatile int mono;
 int myData;
 int debug = 0;
 drwav mywav;
+drflac *myflac;
 //drflac* myflac=NULL;
 //drmp3 mymp3;
 a_flist *alist=NULL;
 int trackplaying=0, trackstoplay=0;
 unsigned short *noisetable=NULL;
+unsigned short *usertable=NULL;
 const unsigned short whitenoise[2]={0};
 
 
@@ -123,7 +131,7 @@ void* my_realloc(void* p, size_t sz, void* pUserData)
 }
 void my_free(void* p, void* pUserData)
 {
-	FreeMemory(p);
+	FreeMemorySafe((void **)p);
 	p=NULL;
 }
 //*************************************************************************************
@@ -1072,6 +1080,7 @@ void CloseAudio(int all){
 	FreeMemorySafe((void **)&sbuff1);
 	FreeMemorySafe((void **)&sbuff2);
 	FreeMemorySafe((void **)&noisetable);
+	FreeMemorySafe((void **)&usertable);
 //	if(was_playing == P_FLAC || was_playing == P_PAUSE_FLAC )FreeMemorySafe((void **)&myflac);
 //	FreeMemorySafe((void **)&mymp3);
 	if(all){
@@ -1082,6 +1091,7 @@ void CloseAudio(int all){
 	WAVcomplete = true;
 	FSerror = 0;
 	memset(&mywav,0,sizeof(drwav));
+	if(was_playing == P_FLAC || was_playing == P_PAUSE_FLAC )FreeMemorySafe((void *)&myflac);
     int i;
     for(i=0;i<MAXSOUNDS;i++){
     	sound_PhaseM_left[i]=0;
@@ -1096,15 +1106,17 @@ void CloseAudio(int all){
 void setrate(int rate){
 	AUDIO_WRAP=(Option.CPU_Speed*1000)/rate  - 1 ;
 	pwm_set_wrap(AUDIO_SLICE, AUDIO_WRAP);
-	pwm_set_chan_level(AUDIO_SLICE, PWM_CHAN_A, AUDIO_WRAP>>1);
-	pwm_set_chan_level(AUDIO_SLICE, PWM_CHAN_B, AUDIO_WRAP>>1);
+	if(Option.AUDIO_L){
+		pwm_set_chan_level(AUDIO_SLICE, PWM_CHAN_A, AUDIO_WRAP>>1);
+		pwm_set_chan_level(AUDIO_SLICE, PWM_CHAN_B, AUDIO_WRAP>>1);
+	}
 	pwm_clear_irq(AUDIO_SLICE);
 }
 void iconvert(uint16_t *ibuff, int16_t *sbuff, int count){
 	int i;
 	for(i=0;i<(count);i+=2){
-		ibuff[i]=(uint16_t)((((((int)sbuff[i]*mapping[vol_left]/2000+32768))>>4)*AUDIO_WRAP)>>12);
-		ibuff[i+1]=(uint16_t)((((((int)sbuff[i+1]*mapping[vol_right]/2000+32768))>>4)*AUDIO_WRAP)>>12);
+		ibuff[i]=(uint16_t)((((((int)sbuff[i]*mapping[vol_left]/2000+32768))>>4)));
+		ibuff[i+1]=(uint16_t)((((((int)sbuff[i+1]*mapping[vol_right]/2000+32768))>>4)));
 	}
 }
 void wavcallback(char *p){
@@ -1122,17 +1134,21 @@ void wavcallback(char *p){
     allocationCallbacks.onRealloc = my_realloc;
     allocationCallbacks.onFree    = my_free;
     drwav_init(&mywav,(drwav_read_proc)onRead, (drwav_seek_proc)onSeek, NULL, &allocationCallbacks);
-    if(mywav.sampleRate>48000)error("Max 48000KHz sample rate");
+    if(mywav.sampleRate>48000*(PWM_FREQ/44100))error("Max %KHz sample rate",48000*(PWM_FREQ/44100));
 //        PInt(mywav.channels);MMPrintString(" Channels\r\n");
 //        PInt(mywav.bitsPerSample);MMPrintString(" Bits per sample\r\n");
 //        PInt(mywav.sampleRate);MMPrintString(" Sample rate\r\n");
-	audiorepeat=1;
-	actualrate=mywav.sampleRate;
-	while(actualrate<44100){
-		actualrate +=mywav.sampleRate;
-		audiorepeat++;
+	if(Option.AUDIO_L){
+		audiorepeat=1;
+		actualrate=mywav.sampleRate;
+		while(actualrate<PWM_FREQ && actualrate<=64000){
+			actualrate +=mywav.sampleRate;
+			audiorepeat++;
+		}
+		setrate(actualrate);
+	} else {
+		setrate(mywav.sampleRate);
 	}
-	setrate(actualrate);
     FreeMemorySafe((void **)&sbuff1);
     FreeMemorySafe((void **)&sbuff2);
     sbuff1 = GetMemory(WAV_BUFFER_SIZE);
@@ -1146,6 +1162,55 @@ void wavcallback(char *p){
 //    iconvert(ibuff2, (int16_t *)sbuff2, bcount[2]);
     wav_filesize=bcount[1];
     CurrentlyPlaying = P_WAV;
+    swingbuf=1;
+    nextbuf=2;
+    ppos=0;
+    playreadcomplete=0;
+	pwm_set_irq_enabled(AUDIO_SLICE, true);
+}
+void flaccallback(char *p){
+	int actualrate;
+    if(strchr(p, '.') == NULL) strcat(p, ".flac");
+    if(CurrentlyPlaying == P_FLAC){
+    	CloseAudio(0);
+    }
+    WAV_fnbr = FindFreeFileNbr();
+    if(!BasicFileOpen(p, WAV_fnbr, FA_READ)) return;
+	drflac_allocation_callbacks allocationCallbacks;
+//	int myData;
+    allocationCallbacks.pUserData = NULL;
+    allocationCallbacks.onMalloc  = my_malloc;
+    allocationCallbacks.onRealloc = my_realloc;
+    allocationCallbacks.onFree    = my_free;
+    myflac=drflac_open((drflac_read_proc)onRead, (drflac_seek_proc)onSeek, NULL, &allocationCallbacks);
+    if(myflac->sampleRate>44100*(PWM_FREQ/44100))error("Max %KHz sample rate",44100*(PWM_FREQ/44100));
+//	PInt(myflac->channels);MMPrintString(" Channels\r\n");
+//	PInt(myflac->bitsPerSample);MMPrintString(" Bits per sample\r\n");
+//	PInt(myflac->sampleRate);MMPrintString(" Sample rate\r\n");
+	if(Option.AUDIO_L){
+		audiorepeat=1;
+		actualrate=myflac->sampleRate;
+		while(actualrate<PWM_FREQ && actualrate<=64000){
+			actualrate +=myflac->sampleRate;
+			audiorepeat++;
+		}
+		setrate(actualrate);
+	} else {
+		setrate(myflac->sampleRate);
+	}
+    FreeMemorySafe((void **)&sbuff1);
+    FreeMemorySafe((void **)&sbuff2);
+    sbuff1 = GetMemory(WAV_BUFFER_SIZE*2);
+    sbuff2 = GetMemory(WAV_BUFFER_SIZE*2);
+    ibuff1 = (uint16_t *)sbuff1;
+    ibuff2 = (uint16_t *)sbuff2;
+	mono=(myflac->channels == 1 ? 1 : 0);
+    bcount[1]=drflac_read_pcm_frames_s16(myflac, WAV_BUFFER_SIZE/2, (drwav_int16*)sbuff1) * myflac->channels;
+//    bcount[2]=drwav_read_pcm_frames_s16(&mywav, WAV_BUFFER_SIZE/4, (drwav_int16*)sbuff2) * mywav.channels;
+	iconvert(ibuff1, (int16_t *)sbuff1, bcount[1]);
+//    iconvert(ibuff2, (int16_t *)sbuff2, bcount[2]);
+    wav_filesize=bcount[1];
+    CurrentlyPlaying = P_FLAC;
     swingbuf=1;
     nextbuf=2;
     ppos=0;
@@ -1196,13 +1261,34 @@ void setnoise(void){
 // The MMBasic command:  PLAY
 void cmd_play(void) {
     unsigned char *tp;
-	if(!Option.AUDIO_L)error((char *)"Audio not enabled");
+	if(!(Option.AUDIO_L || Option.AUDIO_CLK_PIN))error((char *)"Audio not enabled");
     if(checkstring(cmdline, "STOP")) {
         CloseAudio(1);
         return;
     }
+    if((tp=checkstring(cmdline, "LOAD SOUND"))) {
+        if(usertable!=NULL)error("Already loaded");
+        unsigned int nbr, *d;
+        uint16_t *dd;
+		skipspace(tp);
+       	dd = findvar(tp, V_FIND | V_EMPTY_OK | V_NOFIND_ERR);
+        if(((vartbl[VarIndex].type & T_INT) && vartbl[VarIndex].dims[0] > 0 && vartbl[VarIndex].dims[1] == 0))
+        {		// integer array
+            if(vartbl[VarIndex].dims[0] + 1 - OptionBase !=1024) 
+                error("Array size");
+        }  else error("Invalid variable");
+		usertable=dd;
+        return;
+    }
     if(checkstring(cmdline, "NEXT")) {
-	if(CurrentlyPlaying == P_WAV){
+		if(CurrentlyPlaying == P_FLAC){
+			if(trackplaying==trackstoplay){
+				if(!CurrentLinePtr)MMPrintString("Last track is playing\r\n");
+				return;
+			}
+			trackplaying++;
+			flaccallback(alist[trackplaying].fn);
+		} else if(CurrentlyPlaying == P_WAV){
 			if(trackplaying==trackstoplay){
 				if(!CurrentLinePtr)MMPrintString("Last track is playing\r\n");
 				return;
@@ -1214,7 +1300,14 @@ void cmd_play(void) {
     	return;
     }
     if(checkstring(cmdline, "PREVIOUS")) {
-		if(CurrentlyPlaying == P_WAV){
+		if(CurrentlyPlaying == P_FLAC){
+			if(trackplaying==0){
+				if(!CurrentLinePtr)MMPrintString("First track is playing\r\n");
+				return;
+			}
+			trackplaying--;
+			flaccallback(alist[trackplaying].fn);
+		} else if(CurrentlyPlaying == P_WAV){
 			if(trackplaying==0){
 				if(!CurrentLinePtr)MMPrintString("First track is playing\r\n");
 				return;
@@ -1229,6 +1322,7 @@ void cmd_play(void) {
         if(CurrentlyPlaying == P_TONE) CurrentlyPlaying = P_PAUSE_TONE;
         else if(CurrentlyPlaying == P_SOUND) CurrentlyPlaying = P_PAUSE_SOUND;
         else if(CurrentlyPlaying == P_WAV)  CurrentlyPlaying = P_PAUSE_WAV;
+        else if(CurrentlyPlaying == P_FLAC)  CurrentlyPlaying = P_PAUSE_FLAC;
         else
             error("Nothing playing");
         return;
@@ -1238,6 +1332,7 @@ void cmd_play(void) {
         if(CurrentlyPlaying == P_PAUSE_TONE) CurrentlyPlaying = P_TONE;
         else if(CurrentlyPlaying == P_PAUSE_SOUND) CurrentlyPlaying = P_SOUND;
         else if(CurrentlyPlaying == P_PAUSE_WAV) CurrentlyPlaying = P_WAV;
+        else if(CurrentlyPlaying == P_PAUSE_FLAC) CurrentlyPlaying = P_FLAC;
         else
             error("Nothing to resume");  
         return;
@@ -1259,9 +1354,9 @@ void cmd_play(void) {
 
     if((tp = checkstring(cmdline, "TONE"))) {//
         float f_left, f_right;
-        float hw;
+        float hw, duration;
         uint64_t PlayDuration = 0xffffffffffffffff;                     // default is to play forever
-        int x;
+        uint64_t  x;
         // get the command line arguments
         getargs(&tp, 7,",");                                       // this MUST be the first executable line in the function
         if(!(argc == 3 || argc == 5 || argc == 7)) error("Argument count");
@@ -1273,17 +1368,21 @@ void cmd_play(void) {
         f_right = getnumber(argv[2]);
         if(f_left<0.0 || f_left>22050.0)error("Valid is 0Hz to 20KHz");
         if(f_right<0.0 || f_right>22050.0)error("Valid is 0Hz to 20KHz");
-        if(argc > 4) PlayDuration = PWM_FREQ*getint(argv[4], 0, INT_MAX)/1000;
+        if(argc > 4) {
+			duration = ((float)getint(argv[4], 0, INT_MAX)/1000.0); //tone duration in seconds
+			PlayDuration=(uint64_t)duration;
+		} else duration=1;
         if(argc == 7) {
             WAVInterrupt = GetIntAddress(argv[6]);					// get the interrupt location
 			WAVcomplete=false;
             InterruptUsed = true;
         }
-        if(PlayDuration == 0) return;
+        if(duration == 0) return;
         if(PlayDuration != 0xffffffffffffffff && f_left >=10.0){
-        	hw=((float)PWM_FREQ/f_left);
-        	x=(int)((float)(PlayDuration)/hw)+1;
-        	PlayDuration=(uint64_t)((float)x*hw);
+        	hw=((float)PWM_FREQ/(float)f_left); //number of interrupts per cycle
+        	duration = duration * (float)PWM_FREQ; // number of interrupts for the requested waveform
+// This should now be an exact multiple of the number per waveform
+        	PlayDuration=(((uint64_t)(duration/hw))*hw)+1;
         }
         PhaseM_left =  f_left  / (float)PWM_FREQ * 4096.0;
         PhaseM_right = f_right  / (float)PWM_FREQ * 4096.0;
@@ -1292,7 +1391,8 @@ void cmd_play(void) {
         SoundPlay = PlayDuration;
     	if (!(CurrentlyPlaying == P_PAUSE_TONE || CurrentlyPlaying == P_TONE )){
 			setrate(PWM_FREQ);
-            PhaseAC_left = PhaseAC_right = 0.0;
+            PhaseAC_right=0.0;
+			PhaseAC_left=0.0;
 			pwm_set_irq_enabled(AUDIO_SLICE, true);
     	}
         CurrentlyPlaying = P_TONE;
@@ -1300,7 +1400,7 @@ void cmd_play(void) {
     }
     if((tp = checkstring(cmdline, "SOUND"))) {//PLAY SOUND channel, type, position, frequency, volume
         float f_in, PhaseM;
-        int channel, left=0, right=0, lset=0, rset=0, lastleftv, lastrightv,local_sound_v_left,local_sound_v_right;
+        int channel, mono=0, left=0, right=0, lset=0, rset=0, lastleftv, lastrightv,local_sound_v_left,local_sound_v_right;
 		char *p;
         uint16_t *lastleft=NULL, *lastright=NULL, *local_sound_mode_left=NULL, *local_sound_mode_right=NULL;
         // get the command line arguments
@@ -1309,8 +1409,8 @@ void cmd_play(void) {
         if(checkstring(argv[4],"O")==NULL && argc == 5) error("Argument count");
 		WAV_fnbr=0;
         channel=getint(argv[0],1,MAXSOUNDS)-1;
-        lastleft=(uint16_t *)sound_mode_left[channel];
-        lastright=(uint16_t *)sound_mode_right[channel];
+        lastleft=local_sound_mode_left=(uint16_t *)sound_mode_left[channel];
+        lastright=local_sound_mode_right=(uint16_t *)sound_mode_right[channel];
 		lastleftv=sound_v_left[channel];
 		lastrightv=sound_v_right[channel];
         if(checkstring(argv[2],"L")!=NULL){
@@ -1320,11 +1420,19 @@ void cmd_play(void) {
         } else if(checkstring(argv[2],"B")!=NULL){
         	right=1;
         	left=1;
-        } else {
+        } else if(checkstring(argv[2],"M")!=NULL){
+        	right=1;
+        	left=1;
+			mono=1;
+       } else {
 			p=getCstring(argv[2]);
 			if(strcasecmp(p,"B")==0){
 				right=1;
 				left=1;
+			} else if(strcasecmp(p,"M")==0){
+				right=1;
+				left=1;
+				mono=1;
 			} else if (strcasecmp(p,"L")==0){
 				left=1;
 			} else if (strcasecmp(p,"R")==0){
@@ -1346,6 +1454,8 @@ void cmd_play(void) {
         if(checkstring(argv[4],"P")!=NULL && right){rset=1;local_sound_mode_right=(uint16_t *)noisetable;setnoise();}
         if(checkstring(argv[4],"N")!=NULL && left){lset=1;local_sound_mode_left=(uint16_t *)whitenoise;}
         if(checkstring(argv[4],"N")!=NULL && right){rset=1;local_sound_mode_right=(uint16_t *)whitenoise;}
+        if(checkstring(argv[4],"U")!=NULL && left){lset=1;local_sound_mode_left=(uint16_t *)usertable;}
+        if(checkstring(argv[4],"U")!=NULL && right){rset=1;local_sound_mode_right=(uint16_t *)usertable;}
 		if(left && lset==0){
 			p=getCstring(argv[4]);
 			if(strcasecmp(p,"O")==0)local_sound_mode_left=(uint16_t *)nulltable;
@@ -1355,6 +1465,7 @@ void cmd_play(void) {
 			if(strcasecmp(p,"S")==0)local_sound_mode_left=(uint16_t *)SineTable;
 			if(strcasecmp(p,"P")==0){local_sound_mode_left=(uint16_t *)noisetable;setnoise();}
 			if(strcasecmp(p,"N")==0)local_sound_mode_left=(uint16_t *)whitenoise;
+			if(strcasecmp(p,"U")==0)local_sound_mode_left=(uint16_t *)usertable;
 			if(local_sound_mode_left==NULL)error("Invalid type");
 			else lset=1;
 		}
@@ -1367,9 +1478,11 @@ void cmd_play(void) {
 			if(strcasecmp(p,"S")==0)local_sound_mode_right=(uint16_t *)SineTable;
 			if(strcasecmp(p,"P")==0){local_sound_mode_right=(uint16_t *)noisetable;setnoise();}
 			if(strcasecmp(p,"N")==0)local_sound_mode_right=(uint16_t *)whitenoise;
+			if(strcasecmp(p,"U")==0)local_sound_mode_right=(uint16_t *)usertable;
 			if(local_sound_mode_right==NULL)error("Invalid type");
 			else rset=1;
 		}
+		if((local_sound_mode_left==usertable || local_sound_mode_right==usertable) && usertable==NULL) error("Not loaded");
         f_in=10.0;
         if(argc>=7)f_in = getnumber(argv[6]);
         // get the arguments
@@ -1408,6 +1521,10 @@ void cmd_play(void) {
 		if(right)rampvolume(0,1,channel,local_sound_v_right);
 		if(left)sound_mode_left[channel]=local_sound_mode_left;
 		if(right)sound_mode_right[channel]=local_sound_mode_right;
+		if(mono){
+			sound_PhaseAC_right[channel]=(sound_PhaseAC_left[channel]+2048.0);
+			if(sound_PhaseAC_right[channel]>=4096.0)sound_PhaseAC_right[channel]-=4096.0;
+		}
         if(!(CurrentlyPlaying == P_SOUND)){
 			setrate(PWM_FREQ);
     		pwm_set_irq_enabled(AUDIO_SLICE, true);
@@ -1465,6 +1582,57 @@ void cmd_play(void) {
         wavcallback(p);
         return;
     }
+	if((tp = checkstring(cmdline, "FLAC"))) {
+        char *p;
+        int i __attribute((unused))=0;
+        getargs(&tp, 3,",");                                  // this MUST be the first executable line in the function
+        if(!(argc == 1 || argc == 3)) error("Argument count");
+
+        if(CurrentlyPlaying != P_NOTHING) error("Sound output in use");
+
+        if(!InitSDCard()) return;
+        p = getCstring(argv[0]);                                    // get the file name
+        WAVInterrupt = NULL;
+
+        WAVcomplete = 0;
+        if(argc == 3) {
+            WAVInterrupt = GetIntAddress(argv[2]);					// get the interrupt location
+            InterruptUsed = true;
+        }
+		if(FatFSFileSystem){
+			FRESULT fr;
+			FILINFO fno;
+			fr = f_stat(p, &fno);
+			if(fno.fattrib==AM_DIR || p[0]==0){
+				alist=GetMemory(sizeof(a_flist)*MAXALBUM);
+				trackstoplay=0;
+				trackplaying=0;
+				DIR djd;
+				djd.pat="*.flac";
+				if(!CurrentLinePtr)MMPrintString("Directory found - commencing player\r\n");
+				FSerror = f_opendir(&djd, p);
+				for(;;){
+					fr=f_readdir(&djd, &fno);
+					if (fr != FR_OK || fno.fname[0] == 0) break;  /* Break on error or end of dir */
+					// Get a directory item
+					if (pattern_matching(djd.pat, fno.fname, 0, 0)){
+						if(!CurrentLinePtr){MMPrintString(fno.fname);PRet();}
+						strcpy(alist[trackstoplay++].fn,fno.fname);
+					}
+				}
+				trackstoplay--;
+				f_closedir(&djd);
+				flaccallback(alist[trackplaying].fn);
+				return;
+    	    }
+		}
+        // open the file
+        trackstoplay=0;
+        trackplaying=0;
+        flaccallback(p);
+        return;
+	}
+
     error("Unknown command");
 }
 
@@ -1479,6 +1647,18 @@ Stop playing the music or tone
 void StopAudio(void) {
 
 	if(CurrentlyPlaying != P_NOTHING ) {
+		CurrentlyPlaying = P_STOP;
+		int ll,l=pwm_hw->slice[AUDIO_SLICE].cc >>16;
+		int rr,r=pwm_hw->slice[AUDIO_SLICE].cc & 0xFFFF;
+		int m=(AUDIO_WRAP>>1);
+		l=m-l;
+		r=m-r;
+		for(int i=50;i>=0;i--){
+			ll=m-l*i/50;
+			rr=m-r*i/50;
+			pwm_set_both_levels(AUDIO_SLICE,ll,rr);
+			uSec(48);
+		}
 		setrate(PWM_FREQ);
 		pwm_set_irq_enabled(AUDIO_SLICE, false);
         ppos=0;
@@ -1495,7 +1675,18 @@ void checkWAVinput(void){
     audio_checks();
 	if(playreadcomplete==1)return;
     if(swingbuf != nextbuf){ //IR has moved to next buffer
-		if(CurrentlyPlaying == P_WAV){
+        if(CurrentlyPlaying == P_FLAC){
+            if(swingbuf==2){
+                bcount[1]=(volatile unsigned int)drflac_read_pcm_frames_s16(myflac, WAV_BUFFER_SIZE/2, (drwav_int16*)sbuff1) * myflac->channels;
+                iconvert(ibuff1, (uint16_t *)sbuff1, bcount[1]);
+                wav_filesize = bcount[1];
+            } else {
+                bcount[2]=(volatile unsigned int)drflac_read_pcm_frames_s16(myflac, WAV_BUFFER_SIZE/2, (drwav_int16*)sbuff2) * myflac->channels;
+                 iconvert(ibuff2, (uint16_t *)sbuff2, bcount[2]);
+                wav_filesize = bcount[2];
+            }
+            nextbuf=swingbuf;
+	} else if(CurrentlyPlaying == P_WAV){
 			if(swingbuf==2){
 				bcount[1]=(volatile unsigned int)drwav_read_pcm_frames_s16(&mywav, WAV_BUFFER_SIZE/4, (drwav_int16*)sbuff1) * mywav.channels;
 				iconvert(ibuff1, (int16_t *)sbuff1, bcount[1]);
@@ -1509,21 +1700,24 @@ void checkWAVinput(void){
 			diskchecktimer=DISKCHECKRATE;
 		}
 	}
-    if(wav_filesize<=0 && CurrentlyPlaying == P_WAV){
+    if(wav_filesize<=0 && (CurrentlyPlaying == P_WAV || (CurrentlyPlaying == P_FLAC))){
     	if(trackplaying==trackstoplay) {
     		playreadcomplete=1;
-    	}
-    	else {
-		if(CurrentlyPlaying == P_WAV){
+    	} else {
+			if(CurrentlyPlaying == P_WAV){
     			trackplaying++;
     			wavcallback(alist[trackplaying].fn);
+    		} else if(CurrentlyPlaying == P_FLAC){
+    			trackplaying++;
+    			flaccallback(alist[trackplaying].fn);
     		}
-    	}
+		}
     }
 }
 void audio_checks(void){
     if(playreadcomplete == 1) {
     	if(!(bcount[1] || bcount[2]) ){
+            if(CurrentlyPlaying == P_FLAC)drflac_close(myflac);
             FreeMemorySafe((void **)&sbuff1);
             FreeMemorySafe((void **)&sbuff2);
             FreeMemorySafe((void **)&alist);

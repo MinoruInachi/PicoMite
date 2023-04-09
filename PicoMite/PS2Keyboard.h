@@ -58,4 +58,5 @@ extern volatile int PS2int;
 #define CONFIG_JP		8
 #endif  // JPKBD
 
+#define CONFIG_I2C  128
 #endif /* PS2KEYBOARD_H_ */

@@ -80,6 +80,7 @@ extern const char *FErrorMsg[];
 	char *MQTTInterrupt=NULL;
 	volatile int MQTTComplete=0;
 #endif
+extern const uint8_t *flash_target_contents;
 int TickPeriod[NBRSETTICKS]={0};
 volatile int TickTimer[NBRSETTICKS]={0};
 unsigned char *TickInt[NBRSETTICKS]={NULL};
@@ -1323,6 +1324,273 @@ void cmd_ireturn(void){
     MMerrno = Saveerrno;
 }
 
+void cmd_library(void) {  
+            
+    /********************************************************************************************************************
+     ******* LIBRARY SAVE **********************************************************************************************/
+    if(checkstring(cmdline, "SAVE")) {  
+        int pageno=0;  
+        unsigned char *p,  *pp , *m, *MemBuff, *TempPtr, rem;
+        int i, j, k, InCFun, InQuote, CmdExpected;
+        unsigned int CFunDefAddr[100], *CFunHexAddr[100] , *CFunHexLibAddr[100] ;
+        if(CurrentLinePtr) error("Invalid in a program");
+        if(*ProgMemory != 0x01) return;
+        checkend(p);
+        ClearRuntime();
+        TempPtr = m = MemBuff = GetTempMemory(EDIT_BUFFER_SIZE);
+
+        rem = GetCommandValue("Rem");
+        InQuote = InCFun = j = 0;
+        CmdExpected = true;
+       if(Option.LIBRARY_FLASH_SIZE != MAX_PROG_SIZE){
+           uint32_t *c = (uint32_t *)(flash_progmemory - MAX_PROG_SIZE);
+           if (*c != 0xFFFFFFFF)
+            error("Flash Slot % already in use",MAXFLASHSLOTS);
+        ;
+       }
+        // first copy the current program code residing in the Library area to RAM
+        if(Option.LIBRARY_FLASH_SIZE == MAX_PROG_SIZE){
+            p = ProgMemory - Option.LIBRARY_FLASH_SIZE;
+            while(!(p[0] == 0 && p[1] == 0)) *m++ = *p++;
+              *m++ = 0;                                               // terminate the last line
+        }
+        //dump(m, 256);
+        // then copy the current contents of the program memory to RAM
+        
+       //MMPrintString("\r\n Size=1 ");PInt(m - MemBuff);
+        p = ProgMemory;
+        while(*p != 0xff) {
+            if(p[0] == 0 && p[1] == 0) break;                       // end of the program
+
+            if(*p == T_NEWLINE) {
+                TempPtr = m;
+                CurrentLinePtr = p;
+                *m++ = *p++;
+                CmdExpected = true;                                 // if true we can expect a command next (possibly a CFunction, etc)
+                if(*p == 0) {                                       // if this is an empty line we can skip it
+                    p++;
+                    if(*p == 0) break;                              // end of the program or module
+                    m--;
+                    continue;
+                }
+            }
+
+            if(*p == T_LINENBR) {
+//                TempPtr = m;
+                *m++ = *p++; *m++ = *p++; *m++ = *p++;              // copy the line number
+                skipspace(p);
+            }
+
+            if(*p == T_LABEL) {
+                for(i = p[1] + 2; i > 0; i--) *m++ = *p++;          // copy the label
+//                TempPtr = m;
+                skipspace(p);
+            }
+            //if(CmdExpected && ( *p == GetCommandValue("End CFunction") || *p == GetCommandValue("End CSub") || *p == GetCommandValue("End DefineFont"))) {
+            if(CmdExpected && (  *p == GetCommandValue("End CSub") || *p == GetCommandValue("End DefineFont"))) {
+                InCFun = false;                                     // found an  END CSUB or END DEFINEFONT token
+            }
+            if(InCFun) {
+                skipline(p);                                        // skip the body of a CFunction
+                m = TempPtr;                                        // don't copy the new line
+                continue;
+            }
+
+            if(CmdExpected && ( *p == cmdCSUB || *p == GetCommandValue("DefineFont"))) {    // found a  CSUB or DEFINEFONT token
+                CFunDefAddr[++j] = (unsigned int)m;                 // save its address so that the binary copy in the library can point to it
+                while(*p) *m++ = *p++;                              // copy the declaration
+                InCFun = true;
+            }
+
+            if(CmdExpected && *p == rem) {                          // found a REM token
+                skipline(p);
+                m = TempPtr;                                        // don't copy the new line tokens
+                continue;
+            }
+
+            if(*p >= C_BASETOKEN || isnamestart(*p))
+                CmdExpected = false;                                // stop looking for a CFunction, etc on this line
+
+            if(*p == '"') InQuote = !InQuote;                       // found the start/end of a string
+
+            if(*p == '\'' && !InQuote) {                            // found a modern remark char
+                skipline(p);
+                //PIntHC(*(m-3)); PIntHC(*(m-2)); PIntHC(*(m-1)); PIntHC(*(m));
+                //MMPrintString("\r\n");
+                //if(*(m-3) == 0x01) {        //Original condition from Micromites
+                /* Check to see if comment is the first thing on the line or its only preceded by spaces.
+                Spaces have been reduced to a single space so we treat a comment with 1 space before it
+                as a comment line to be omitted.
+                */    
+                if((*(m-1) == 0x01) ||  ((*(m-2) == 0x01) && (*(m-1) == 0x20))){    
+                    m = TempPtr;                                    // if the comment was the only thing on the line don't copy the line at all
+                    continue;
+                } else
+                    p--;
+            }
+
+            if(*p == ' ' && !InQuote) {                             // found a space
+                if(*(m-1) == ' ') m--;                              // don't copy the space if the preceeding char was a space
+            }
+
+            if(p[0] == 0 && p[1] == 0) break;                       // end of the program
+            *m++ = *p++;
+        }
+      
+       // MMPrintString("\r\n Size2= ");PInt(m - MemBuff);
+       //The picomite will have any fonts or CSUBs binary starting on a new 256 byte block so there can be many 
+       //0x00 bytes at the end of the program. We only need two of them .
+        // At the end of the program so get the two 0x00 bytes
+        *m++ = *p++; 
+        *m++ = *p++; 
+        // Step the program memory up to the first 0xFF of the 4 that mark the beginning of the CSub binaries.
+        while(*p != 0xff) *p++; 
+        p++;p++; p++;p++;                                           // step over the header of the four 0xff bytes
+                                    
+        //step the memory to the next 4 word boundary
+        // while((unsigned int)p & 0b11) p++;
+        while((unsigned int)m & 0b11) *m++ = 0x00;                  // step memory to the next word boundary
+        *m++=0xFF;*m++=0xFF;*m++=0xFF;*m++=0xFF;                    //write 4 byte of the csub binary header 
+        
+     
+        // now copy the CFunction/CSub/Font data
+        // =====================================
+        // the format of a CFunction in flash is:
+        //   Unsigned Int - Address of the CFunction/CSub/Font in program memory (points to the token).  For a font it is zero.
+        //   Unsigned Int - The length of the CFunction/CSub/Font in bytes including the Offset (see below)
+        //   Unsigned Int - The Offset (in words) to the main() function (ie, the entry point to the CFunction/CSub).  The specs for the font if it is a font.
+        //   word1..wordN - The CFunction code
+        // The next CFunction starts immediately following the last word of the previous CFunction
+
+        // first, copy any CFunctions residing in the library area to RAM
+       // MMPrintString("\r\n Copying CSUBS from library");
+        k = 0;                                                      // this is used to index CFunHexLibAddr[] for later adjustment of a CFun's address
+        if(CFunctionLibrary != NULL) {
+            pp = (char *)CFunctionLibrary;
+            while(*(unsigned int *)pp != 0xffffffff) {
+                CFunHexLibAddr[++k] = (unsigned int *)m;            // save the address for later adjustment
+                j = (*(unsigned int *)(pp + 4)) + 8;                // calculate the total size of the CFunction
+                while(j--) *m++ = *pp++;                            // copy it into RAM
+            }
+        }
+      
+        // then, copy any CFunctions in program memory to RAM
+        
+        i = 0;                                                      // this is used to index CFunHexAddr[] for later adjustment of a CFun's address
+       // while(*(unsigned int *)p != 0xffffffff && (int)p < Option.PROG_FLASH_SIZE) {
+        while(*(unsigned int *)p != 0xffffffff) {    
+            CFunHexAddr[++i] = (unsigned int *)m;                   // save the address for later adjustment
+            j = (*(unsigned int *)(p + 4)) + 8;                     // calculate the total size of the CFunction
+            while(j--) *m++ = *p++;                                 // copy it into RAM
+        }
+        // we have now copied all the CFunctions into RAM
+
+        // calculate the size of the library code  to  end on a word boundary
+        j=(((m - MemBuff) + (0x4 - 1)) & (~(0x4 - 1)));
+       
+         //We only have reserved MAX_PROG_SIZE of flash for library code .
+        //Error if we try to use too much
+        if (j > MAX_PROG_SIZE) error("Library too big");
+              
+        TempPtr = (LibMemory);
+     
+        // now adjust the addresses of the declaration in each CFunction header
+        // do not adjust a font who's "address" is  fontno-1.
+        // NO ADJUSTMENT REQUIRED FOR PICOMITE as ADDRESS is RELATIVE and LIBRARY is at a fixed location.
+        // first, CFunctions that were already in the library
+        //for(; k > 0; k--) {
+             //if ((*CFunHexLibAddr[k]>>31)==0)  *CFunHexLibAddr[k] -= ((unsigned int)( MAX_PROG_SIZE);
+        //}
+
+        // then, CFunctions that are being added to the library
+        for(; i > 0; i--) {
+          if ((*CFunHexAddr[i]>>31)==0)  *CFunHexAddr[i] = (CFunDefAddr[i] - (unsigned int)MemBuff);
+        }
+
+       
+  //******************************************************************************
+        //now write the library from ram to the library flash area
+        // initialise for writing to the flash
+        FlashWriteInit(LIBRARY_FLASH);
+        flash_range_erase(realflashpointer, MAX_PROG_SIZE);
+        i=MAX_PROG_SIZE/4;
+       
+        int *ppp=(int *)(flash_progmemory - MAX_PROG_SIZE);
+        while(i--)if(*ppp++ != 0xFFFFFFFF){
+            enable_interrupts();
+            error("Flash erase problem");
+        }
+   
+        i=0;
+        for(k = 0; k < m - MemBuff; k++){        // write to the flash byte by byte
+           FlashWriteByte(MemBuff[k]);
+        }
+        FlashWriteClose();
+        Option.LIBRARY_FLASH_SIZE = MAX_PROG_SIZE;
+        SaveOptions();
+
+        if(MMCharPos > 1) MMPrintString("\r\n");                    // message should be on a new line
+        MMPrintString("Library Saved ");
+        IntToStr(tknbuf, k, 10);
+        MMPrintString(tknbuf);
+        MMPrintString(" bytes\r\n");
+        fflush(stdout);
+        uSec(2000);
+     
+
+        //Now call the new command that will clear the current program memory then
+        //write the library code at Option.ProgFlashSize by copying it from the windbond
+        //and return to the command prompt.
+        cmdline = ""; CurrentLinePtr = NULL;    // keep the NEW command happy
+        cmd_new();                              //  delete the program,add the library code and return to the command prompt
+    }
+     /********************************************************************************************************************
+     ******* LIBRARY DELETE **********************************************************************************************/
+
+     if(checkstring(cmdline, "DELETE")) {
+        int i;
+        if(CurrentLinePtr) error("Invalid in a program");
+        if(Option.LIBRARY_FLASH_SIZE != MAX_PROG_SIZE) return;
+        
+        FlashWriteInit(LIBRARY_FLASH);
+        flash_range_erase(realflashpointer, MAX_PROG_SIZE);
+        i=MAX_PROG_SIZE/4;
+       
+        int *ppp=(int *)(flash_progmemory - MAX_PROG_SIZE);
+        while(i--)if(*ppp++ != 0xFFFFFFFF){
+            enable_interrupts();
+            error("Flash erase problem");
+        }
+        enable_interrupts();
+
+        Option.LIBRARY_FLASH_SIZE= 0;
+        SaveOptions();
+        return;
+        // Clear Program Memory and also the Library at the end.
+//        cmdline = ""; CurrentLinePtr = NULL;    // keep the NEW command happy
+//        cmd_new();                              //  delete any program,and the library code and return to the command prompt
+        
+     }
+
+      /********************************************************************************************************************
+      ******* LIBRARY LIST **********************************************************************************************/
+
+     if(checkstring(cmdline, "LIST ALL")) {
+        if(CurrentLinePtr) error("Invalid in a program");
+        if(Option.LIBRARY_FLASH_SIZE != MAX_PROG_SIZE) return;
+        ListProgram(ProgMemory - Option.LIBRARY_FLASH_SIZE, true);
+        return;
+     }
+     if(checkstring(cmdline, "LIST")) {
+        if(CurrentLinePtr) error("Invalid in a program");
+        if(Option.LIBRARY_FLASH_SIZE != MAX_PROG_SIZE) return;
+        ListProgram(ProgMemory - Option.LIBRARY_FLASH_SIZE, false);
+        return;
+     }
+  
+     error("Invalid syntax");
+    }
+     
 
 // set up the tick interrupt
 void cmd_settick(void){
@@ -1370,7 +1638,9 @@ void PO3Str(char *s1, const char *s2, const char *s3) {
 void PO2Int(char *s1, int n) {
     PO(s1); PInt(n); MMPrintString("\r\n");
 }
-
+void PO2IntH(char *s1, int n) {
+    PO(s1); PIntH(n); MMPrintString("\r\n");
+}
 void PO3Int(char *s1, int n1, int n2) {
     PO(s1); PInt(n1); PIntComma(n2); MMPrintString("\r\n");
 }
@@ -1386,9 +1656,14 @@ void printoptions(void){
     int i=Option.DISPLAY_ORIENTATION;
 #ifdef PICOMITEVGA
     MMPrintString("\rPicoMiteVGA MMBasic Version " VERSION "\r\n");
-#else
+#endif    
+#ifdef PICOMITEWEB
+    MMPrintString("\rPicoMiteWEB MMBasic Version " VERSION "\r\n");    
+#endif 
+#ifdef PICOMITE
     MMPrintString("\rPicoMite MMBasic Version " VERSION "\r\n");
-#endif
+#endif     
+
     if(Option.SerialConsole){
         MMPrintString("OPTION SERIAL CONSOLE COM");
         MMputchar((Option.SerialConsole & 3)+48,1);
@@ -1413,13 +1688,14 @@ void printoptions(void){
     if(Option.Autorun==MAXFLASHSLOTS+1)PO2Str("AUTORUN", "ON");
     if(Option.Baudrate != CONSOLE_BAUDRATE) PO2Int("BAUDRATE", Option.Baudrate);
     if(Option.FlashSize !=2048*1024) PO2Int("FLASH SIZE", Option.FlashSize);
+    if(MAX_PROG_SIZE == Option.LIBRARY_FLASH_SIZE) PO2IntH("LIBRARY_FLASH_SIZE ", Option.LIBRARY_FLASH_SIZE);
     if(Option.Invert == true) PO2Str("CONSOLE", "INVERT");
     if(Option.Invert == 2) PO2Str("CONSOLE", "AUTO");
     if(Option.ColourCode == true) PO2Str("COLOURCODE", "ON");
     if(Option.PWM == true) PO2Str("POWER PWM", "ON");
     if(Option.Listcase != CONFIG_TITLE) PO2Str("CASE", CaseList[(int)Option.Listcase]);
     if(Option.Tab != 2) PO2Int("TAB", Option.Tab);
-    if(Option.KeyboardConfig != NO_KEYBOARD){
+    if(!(Option.KeyboardConfig == NO_KEYBOARD ||Option.KeyboardConfig == CONFIG_I2C)){
         PO("KEYBOARD"); MMPrintString((char *)KBrdList[(int)Option.KeyboardConfig]); 
         if(Option.capslock || Option.numlock!=1 || Option.repeat!=0b00101100){
             PIntComma(Option.capslock);PIntComma(Option.numlock);PIntComma(Option.repeat>>5);
@@ -1427,6 +1703,7 @@ void printoptions(void){
         }
         PRet();
     } 
+    if(Option.KeyboardConfig == CONFIG_I2C)PO2Str("KEYBOARD", "I2C");
     if(Option.NoHeartbeat)PO2Str("HEARTBEAT", "OFF");
 #ifdef PICOMITEVGA
     if(Option.CPU_Speed!=126000)PO2Int("CPUSPEED (KHz)", Option.CPU_Speed);
@@ -1518,6 +1795,7 @@ void printoptions(void){
     if(Option.TCP_PORT && Option.ServerResponceTime==5000)PO2Int("TCP SERVER PORT", Option.TCP_PORT);
     if(Option.Telnet==1)PO2Str("TELNET", "CONSOLE ON");
     if(Option.Telnet==-1)PO2Str("TELNET", "CONSOLE ONLY");
+    if(Option.disabletftp==1)PO2Str("TFTP", "OFF");
     #endif
     if(Option.TOUCH_CS) {
         PO("TOUCH"); 
@@ -1543,10 +1821,17 @@ void printoptions(void){
         }
         MMPrintString("\r\n");
     }
-    if(Option.AUDIO_L){
+    if(Option.AUDIO_L || Option.AUDIO_CLK_PIN){
         PO("AUDIO");
-        MMPrintString((char *)PinDef[Option.AUDIO_L].pinname);MMputchar(',',1);;
-        MMPrintString((char *)PinDef[Option.AUDIO_R].pinname);MMPrintString(", ON PWM CHANNEL ");
+        if(Option.AUDIO_L){
+            MMPrintString((char *)PinDef[Option.AUDIO_L].pinname);MMputchar(',',1);
+            MMPrintString((char *)PinDef[Option.AUDIO_R].pinname);
+        } else {
+            MMPrintString((char *)PinDef[Option.AUDIO_CS_PIN].pinname);MMputchar(',',1);
+            MMPrintString((char *)PinDef[Option.AUDIO_CLK_PIN].pinname);MMputchar(',',1);
+            MMPrintString((char *)PinDef[Option.AUDIO_MOSI_PIN].pinname);
+        }
+        MMPrintString(", ON PWM CHANNEL ");
         PInt(Option.AUDIO_SLICE);MMPrintString("\r\n");
     }
     if(Option.RTC)PO2Str("RTC AUTO", "ENABLE");
@@ -1566,9 +1851,11 @@ void printoptions(void){
     if(Option.DefaultFont!=1)PO3Int("DEFAULT FONT",(Option.DefaultFont>>4)+1, Option.DefaultFont & 0xF);
 
 }
-int checkslice(int pin1,int pin2){
+int checkslice(int pin1,int pin2, int ignore){
     if((PinDef[pin1].slice & 0xf) != (PinDef[pin2].slice &0xf)) error("Pins not on same PWM slice");
-    if(!((PinDef[pin1].slice - PinDef[pin2].slice == 128) || (PinDef[pin2].slice - PinDef[pin1].slice == 128))) error("Pins both same channel");
+    if(!ignore){
+        if(!((PinDef[pin1].slice - PinDef[pin2].slice == 128) || (PinDef[pin2].slice - PinDef[pin1].slice == 128))) error("Pins both same channel");
+    }
     return PinDef[pin1].slice & 0xf;
 }
 void setterminal(void){
@@ -1620,11 +1907,20 @@ void disable_sd(void){
 }
 void disable_audio(void){
     if(!IsInvalidPin(Option.AUDIO_L))ExtCurrentConfig[Option.AUDIO_L] = EXT_DIG_IN ;   
-    if(!IsInvalidPin(Option.AUDIO_R))ExtCurrentConfig[Option.AUDIO_R] = EXT_DIG_IN ;   
     if(!IsInvalidPin(Option.AUDIO_L))ExtCfg(Option.AUDIO_L, EXT_NOT_CONFIG, 0);
+    if(!IsInvalidPin(Option.AUDIO_R))ExtCurrentConfig[Option.AUDIO_R] = EXT_DIG_IN ;   
     if(!IsInvalidPin(Option.AUDIO_R))ExtCfg(Option.AUDIO_R, EXT_NOT_CONFIG, 0);
+    if(!IsInvalidPin(Option.AUDIO_CLK_PIN))ExtCurrentConfig[Option.AUDIO_CLK_PIN] = EXT_DIG_IN ;   
+    if(!IsInvalidPin(Option.AUDIO_CLK_PIN))ExtCfg(Option.AUDIO_CLK_PIN, EXT_NOT_CONFIG, 0);
+    if(!IsInvalidPin(Option.AUDIO_CS_PIN))ExtCurrentConfig[Option.AUDIO_CS_PIN] = EXT_DIG_IN ;   
+    if(!IsInvalidPin(Option.AUDIO_CS_PIN))ExtCfg(Option.AUDIO_CS_PIN, EXT_NOT_CONFIG, 0);
+    if(!IsInvalidPin(Option.AUDIO_MOSI_PIN))ExtCurrentConfig[Option.AUDIO_MOSI_PIN] = EXT_DIG_IN ;   
+    if(!IsInvalidPin(Option.AUDIO_MOSI_PIN))ExtCfg(Option.AUDIO_MOSI_PIN, EXT_NOT_CONFIG, 0);
     Option.AUDIO_L=0;
     Option.AUDIO_R=0;
+    Option.AUDIO_CLK_PIN=0;
+    Option.AUDIO_CS_PIN=0;
+    Option.AUDIO_MOSI_PIN=0;
     Option.AUDIO_SLICE=99;
 }
 void cmd_option(void) {
@@ -1751,6 +2047,7 @@ void cmd_option(void) {
 #ifdef JPKBD
 		else if(checkstring(argv[0], "JP"))	Option.KeyboardConfig = CONFIG_JP;
 #endif  // JPKBD
+		else if(checkstring(argv[0], "I2C")) Option.KeyboardConfig = CONFIG_I2C;
         else error("Syntax");
         Option.capslock=0;
 #ifndef NEXTDAY_SPEC
@@ -1760,11 +2057,15 @@ void cmd_option(void) {
 #endif
         int rs=0b00100000;
         int rr=0b00001100;
-        if(argc>=3 && *argv[2])Option.capslock=getint(argv[2],0,1);
-        if(argc>=5 && *argv[4])Option.numlock=getint(argv[4],0,1);
-        if(argc>=7 && *argv[6])rs=getint(argv[6],0,3)<<5;
-        if(argc==9 && *argv[8])rr=getint(argv[8],0,31);
-        Option.repeat = rs | rr;
+        if(Option.KeyboardConfig!=CONFIG_I2C){
+            if(argc>=3 && *argv[2])Option.capslock=getint(argv[2],0,1);
+            if(argc>=5 && *argv[4])Option.numlock=getint(argv[4],0,1);
+            if(argc>=7 && *argv[6])rs=getint(argv[6],0,3)<<5;
+            if(argc==9 && *argv[8])rr=getint(argv[8],0,31);
+            Option.repeat = rs | rr;
+        } else {
+            if(!Option.SYSTEM_I2C_SCL)error("Option System I2C not set");
+        }
         SaveOptions();
         _excep_code = RESET_COMMAND;
         SoftReset();
@@ -1982,7 +2283,17 @@ void cmd_option(void) {
          _excep_code = RESET_COMMAND;
         SoftReset();
         return;
-        error("Syntax");
+    }
+    tp = checkstring(cmdline, "TFTP");
+    if(tp) {
+   	    if(CurrentLinePtr) error("Invalid in a program");
+        if(checkstring(tp, "OFF"))Option.disabletftp=1;
+        else if(checkstring(tp, "ON"))Option.disabletftp=0;
+        else error("Syntax");
+        SaveOptions();
+         _excep_code = RESET_COMMAND;
+        SoftReset();
+        return;
     }
 
 #endif
@@ -2240,6 +2551,7 @@ void cmd_option(void) {
     tp = checkstring(cmdline, "AUDIO");
     if(tp) {
         int pin1,pin2, slice;
+        unsigned char *p;
         if(checkstring(tp, "DISABLE")){
    	        if(CurrentLinePtr) error("Invalid in a program");
              disable_audio();
@@ -2247,6 +2559,51 @@ void cmd_option(void) {
             _excep_code = RESET_COMMAND;
             SoftReset();
             return;                                // this will restart the processor ? only works when not in debug
+        }
+        if((p=checkstring(tp, "SPI"))){
+            int pin1,pin2,pin3;
+            getargs(&p,5,",");
+            if(CurrentLinePtr) error("Invalid in a program");
+            if(argc!=5)error("Syntax");
+            if(Option.AUDIO_CLK_PIN)error("Audio SPI already configured");
+            unsigned char code;
+//
+            if(!(code=codecheck(argv[0])))argv[0]+=2;
+            pin1 = getinteger(argv[0]);
+            if(!code)pin1=codemap(pin1);
+            if(IsInvalidPin(pin1)) error("Invalid pin");
+            if(ExtCurrentConfig[pin1] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin1,pin1);
+//
+            if(!(code=codecheck(argv[2])))argv[2]+=2;
+            pin2 = getinteger(argv[2]);
+            if(!code)pin2=codemap(pin2);
+            if(IsInvalidPin(pin2)) error("Invalid pin");
+            if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin2,pin2);
+//
+            if(!(code=codecheck(argv[4])))argv[4]+=2;
+            pin3 = getinteger(argv[4]);
+            if(!code)pin3=codemap(pin3);
+            if(IsInvalidPin(pin3)) error("Invalid pin");
+            if(ExtCurrentConfig[pin3] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin3,pin3);
+//
+/*            if(!(code=codecheck(argv[6])))argv[6]+=2;
+            pin2 = getinteger(argv[6]);
+            if(!code)pin2=codemap(pin2);
+            if(IsInvalidPin(pin2)) error("Invalid pin");
+            if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin2,pin2);*/
+//
+            if(!(PinDef[pin2].mode & SPI0SCK && PinDef[pin3].mode & SPI0TX) &&
+            !(PinDef[pin2].mode & SPI1SCK && PinDef[pin3].mode & SPI1TX))error("Not valid SPI pins");
+            Option.AUDIO_CS_PIN=pin1;
+            Option.AUDIO_CLK_PIN=pin2;
+            Option.AUDIO_MOSI_PIN=pin3;
+            slice=checkslice(pin2,pin2, 1);
+            if((PinDef[Option.DISPLAY_BL].slice & 0x7f) == slice) error("Channel in use for backlight");
+            Option.AUDIO_SLICE=slice;
+            SaveOptions();
+            _excep_code = RESET_COMMAND;
+            SoftReset();
+            return;
         }
     	getargs(&tp,3,",");
    	    if(CurrentLinePtr) error("Invalid in a program");
@@ -2263,7 +2620,7 @@ void cmd_option(void) {
         if(!code)pin2=codemap(pin2);
         if(IsInvalidPin(pin2)) error("Invalid pin");
         if(ExtCurrentConfig[pin2] != EXT_NOT_CONFIG)  error("Pin %/| is in use",pin2,pin2);
-        slice=checkslice(pin1,pin2);
+        slice=checkslice(pin1,pin2, 0);
         if((PinDef[Option.DISPLAY_BL].slice & 0x7f) == slice) error("Channel in use for backlight");
         Option.AUDIO_L=pin1;
         Option.AUDIO_R=pin2;
@@ -2467,6 +2824,13 @@ void cmd_option(void) {
 	tp = checkstring(cmdline, "RESET");
     if(tp) {
    	    if(CurrentLinePtr) error("Invalid in a program");
+        if(Option.LIBRARY_FLASH_SIZE==MAX_PROG_SIZE) {
+          uint32_t j = FLASH_TARGET_OFFSET + FLASH_ERASE_SIZE + SAVEDVARS_FLASH_SIZE + ((MAXFLASHSLOTS - 1) * MAX_PROG_SIZE);
+          uSec(250000);
+          disable_interrupts();
+          flash_range_erase(j, MAX_PROG_SIZE);
+          enable_interrupts();
+        }
         ResetOptions();
         _excep_code = RESET_COMMAND;
         SoftReset();
@@ -2486,7 +2850,7 @@ void fun_device(void){
     strcpy(sret, "PicoMite");
 #endif
 #ifdef PICOMITEWEB
-    strcpy(sret, "PicoMiteWeb");
+    strcpy(sret, "WebMite");
 #endif
     CtoM(sret);
     targ = T_STR;
@@ -2997,6 +3361,7 @@ void fun_info(void){
             case P_PAUSE_FLAC:strcpy(sret,"PAUSED");break;
             case P_TONE:strcpy(sret,"TONE");break;
             case P_WAV:strcpy(sret,"WAV");break;
+            case P_FLAC:strcpy(sret,"FLAC");break;
             case P_SOUND:strcpy(sret,"SOUND");break;
             }
             CtoM(sret);
@@ -3230,9 +3595,10 @@ void cmd_poke(void) {
 
 // function to find a CFunction
 // only used by fun_peek() below
-unsigned int GetCFunAddr(int *ip, int i) {
+unsigned int GetCFunAddr(int *ip, int i,unsigned char *offset) {
     while(*ip != 0xffffffff) {
-        if(*ip++ == (unsigned int)(subfun[i]-ProgMemory)) {                      // if we have a match
+        //if(*ip++ == (unsigned int)(subfun[i]-ProgMemory)) {                      // if we have a match
+        if(*ip++ == (unsigned int)(subfun[i]-offset)) {                      // if we have a match
             ip++;                                                   // step over the size word
             i = *ip++;                                              // get the offset
             return (unsigned int)(ip + i);                          // return the entry point
@@ -3327,7 +3693,8 @@ void fun_peek(void) {
         if(i == -1) i = FindSubFun(p, false);                       // and if not found try for a subroutine
         if(i == -1 || !(*subfun[i] == cmdCSUB)) error("Invalid argument");
         // search through program flash and the library looking for a match to the function being called
-        j = GetCFunAddr((int *)CFunctionFlash, i);
+        j = GetCFunAddr((int *)CFunctionFlash, i,ProgMemory);
+        if(!j) j = GetCFunAddr((int *)CFunctionLibrary, i,LibMemory);         //Check the library
         if(!j) error("Internal fault 6(sorry)");
         iret = (unsigned int)j;                                     // return the entry point
         targ = T_INT;

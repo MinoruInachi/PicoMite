@@ -64,7 +64,7 @@ extern "C" {
 					"Copyright " YEAR2 " Peter Mather\r\n\r\n"
 #endif
 #ifdef PICOMITEWEB
-#define MES_SIGNON  "\rPicoMiteWeb MMBasic Version " VERSION "\r\n"\
+#define MES_SIGNON  "\rWebMite MMBasic Version " VERSION "\r\n"\
 					"Copyright " YEAR " Geoff Graham\r\n"\
 					"Copyright " YEAR2 " Peter Mather\r\n\r\n"
 volatile int WIFIconnected=0;
@@ -77,7 +77,7 @@ void ProcessWeb(void);
 					"Copyright " YEAR2 " Peter Mather\r\n\r\n"
 #endif
 
-#define USBKEEPALIVE 30000
+#define KEYCHECKTIME 16
 int ListCnt;
 int MMCharPos;
 int busfault=0;
@@ -103,7 +103,7 @@ volatile unsigned int clocktimer=60*60*1000;
 volatile unsigned int PauseTimer = 0;
 volatile unsigned int IntPauseTimer = 0;
 volatile unsigned int Timer1=0, Timer2=0, Timer4=0;		                       //1000Hz decrement timer
-volatile unsigned int USBKeepalive=USBKEEPALIVE;
+volatile unsigned int KeyCheck=KEYCHECKTIME;
 volatile int ds18b20Timer = -1;
 volatile unsigned int ScrewUpTimer = 0;
 volatile int second = 0;                                            // date/time counters
@@ -124,6 +124,7 @@ const uint8_t *flash_option_contents = (const uint8_t *) (XIP_BASE + FLASH_TARGE
 const uint8_t *SavedVarsFlash = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET +  FLASH_ERASE_SIZE);
 const uint8_t *flash_target_contents = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET + FLASH_ERASE_SIZE + SAVEDVARS_FLASH_SIZE);
 const uint8_t *flash_progmemory = (const uint8_t *) (XIP_BASE + PROGSTART);
+const uint8_t *flash_libmemory = (const uint8_t *) (XIP_BASE + PROGSTART - MAX_PROG_SIZE);
 int ticks_per_second; 
 int InterruptUsed;
 int calibrate=0;
@@ -157,6 +158,7 @@ static uint64_t __not_in_flash_func(uSecTimer)(void){ return time_us_64();}
 static int64_t PinReadFunc(int a){return gpio_get(PinDef[a].GPno);}
 extern void CallExecuteProgram(char *p);
 extern void CallCFuncmSec(void);
+void executelocal(char *p);
 static uint64_t timer_target;
 unsigned int CFuncFastTimer = (unsigned int)NULL;
 #define CFUNCRAM_SIZE   256
@@ -262,7 +264,7 @@ const struct s_PinDef PinDef[NBRPINS + 1]={
 	    { 26, 20, "GP20",  DIGITAL_IN | DIGITAL_OUT | SPI0RX | UART1TX| I2C0SDA | PWM2A	,99, 2},    // pin 26
 	    { 27, 21, "GP21",  DIGITAL_IN | DIGITAL_OUT | UART1RX| I2C0SCL | PWM2B	,99, 130},    		// pin 27
 		{ 28, 99, "GND",  UNUSED  ,99, 99},                                                         // pin 28
-		{ 29, 22, "GP22",  DIGITAL_IN | DIGITAL_OUT | I2C1SDA| PWM3A	,99, 3},    				// pin 29
+		{ 29, 22, "GP22",  DIGITAL_IN | DIGITAL_OUT | SPI0SCK | I2C1SDA| PWM3A	,99, 3},    				// pin 29
 		{ 30, 99, "RUN",  UNUSED  ,99, 99},                                                         // pin 30
 	    { 31, 26, "GP26",  DIGITAL_IN | DIGITAL_OUT	| ANALOG_IN | SPI1SCK| I2C1SDA | PWM5A , 0 , 5},// pin 31
 	    { 32, 27, "GP27",  DIGITAL_IN | DIGITAL_OUT	| ANALOG_IN | SPI1TX| I2C1SCL | PWM5B , 1, 133},// pin 32
@@ -303,16 +305,20 @@ void __not_in_flash_func(routinechecks)(void){
         }
     }
 	if(GPSchannel)processgps();
-    if(diskchecktimer== 0 || CurrentlyPlaying == P_WAV)CheckSDCard();
+    if(diskchecktimer== 0 || CurrentlyPlaying == P_WAV || CurrentlyPlaying == P_FLAC)CheckSDCard();
 #ifdef PICOMITE
     if(Ctrl)ProcessTouch();
 #endif
-//        if(tud_cdc_connected() && USBKeepalive==0){
+//        if(tud_cdc_connected() && KeyCheck==0){
 //            SSPrintString(alive);
 //        }
     if(clocktimer==0 && Option.RTC){
         RtcGetTime(0);
         clocktimer=(1000*60*60);
+    }
+    if(Option.KeyboardConfig==CONFIG_I2C && KeyCheck==0){
+        CheckI2CKeyboard(0);
+        KeyCheck=KEYCHECKTIME;
     }
 }
 
@@ -342,7 +348,6 @@ char SerialConsolePutC(char c, int flush) {
         if(tud_cdc_connected()){
             putc(c,stdout);
             if(flush){
-                USBKeepalive=USBKEEPALIVE;
                 fflush(stdout);
             }
         }
@@ -670,7 +675,16 @@ void EditInputLine(void) {
                     strcpy(&buf[1],"EDIT\r\n");
                     break;
                 case 0x95:
-                    if(*Option.F5key)strcpy(&buf[1],Option.F5key);
+                    if(*Option.F5key){
+                        strcpy(&buf[1],Option.F5key);
+                    }else{
+                         /*** F5 will clear the VT100  ***/
+            	         SSPrintString("\e[2J\e[H");
+            	         fflush(stdout);
+            	        // if(Option.DISPLAY_CONSOLE){MX470Display(DISPLAY_CLS);CurrentX=0;CurrentY=0;}
+            	         MMPrintString("> ");
+            	         fflush(stdout);
+                    }    
                     break;
                 case 0x96:
                     if(*Option.F6key)strcpy(&buf[1],Option.F6key);
@@ -797,7 +811,6 @@ void MMPrintString(char* s) {
         s++;
     }
     fflush(stdout);
-    USBKeepalive=USBKEEPALIVE;
 }
 void SSPrintString(char* s) {
     while(*s) {
@@ -805,7 +818,6 @@ void SSPrintString(char* s) {
         s++;
     }
     fflush(stdout);
-    USBKeepalive=USBKEEPALIVE;
 }
 
 /*void myprintf(char *s){
@@ -846,7 +858,7 @@ bool __not_in_flash_func(timer_callback)(repeating_timer_t *rt)
         if(Timer3)Timer3--;
         if(Timer2)Timer2--;
         if(Timer1)Timer1--;
-        if(USBKeepalive)USBKeepalive--;
+        if(KeyCheck)KeyCheck--;
         if(diskchecktimer && Option.SD_CS)diskchecktimer--;
 	    if(++CursorTimer > CURSOR_OFF + CURSOR_ON) CursorTimer = 0;		// used to control cursor blink rate
         if(CFuncmSec) CallCFuncmSec();                                  // the 1mS tick for CFunctions (see CFunction.c)
@@ -1100,7 +1112,9 @@ void sigbus(void){
     MMPrintString("Error: Invalid address - resetting\r\n");
 	uSec(250000);
 	disable_interrupts();
-	flash_range_erase(PROGSTART, MAX_PROG_SIZE);
+//	flash_range_erase(PROGSTART, MAX_PROG_SIZE);
+    Option.Autorun=0;
+    SaveOptions();
 	enable_interrupts();
     memset(inpbuf,0,STRINGSIZE);
     SoftReset();
@@ -1784,7 +1798,7 @@ void WebConnect(void){
             MMPrintString(buff);
             WIFIconnected=1;
             open_tcp_server(1);
-            cmd_tftp_server_init();
+            if(!Option.disabletftp)cmd_tftp_server_init();
         }
     }
 }
@@ -1808,10 +1822,12 @@ int main(){
         SoftReset();
     }
     m_alloc(M_PROG);                                           // init the variables for program memory
+    LibMemory = (uint8_t *)flash_libmemory;
     uSec(100);
     if(Option.CPU_Speed>200000)vreg_set_voltage(VREG_VOLTAGE_1_25);  // Std default @ boot is 1_10
     uSec(100);
     set_sys_clock_khz(Option.CPU_Speed, true);
+    PWM_FREQ=44100*(Option.CPU_Speed/126000);
     pico_get_unique_board_id_string (id_out,12);
     clock_configure(
         clk_peri,
@@ -1899,11 +1915,18 @@ int main(){
         SaveOptions();
         MMPrintString("RTC not found, OPTION RTC AUTO disabled\r\n");
     }
+    if(noI2C){
+        noI2C=0;
+        Option.KeyboardConfig=NO_KEYBOARD;
+        SaveOptions();
+        MMPrintString("I2C Keyboard not found, OPTION KEYBOARD disabled\r\n");
+    }
     updatebootcount();
     *tknbuf = 0;
      ContinuePoint = nextstmt;                               // in case the user wants to use the continue command
 	if(setjmp(mark) != 0) {
      // we got here via a long jump which means an error or CTRL-C or the program wants to exit to the command prompt
+        FlashLoad = 0;
         LoadOptions();
         ScrewUpTimer = 0;
         ProgMemory=(uint8_t *)flash_progmemory;
@@ -1921,6 +1944,7 @@ int main(){
             ClearRuntime();
             PrepareProgram(true);
             if(*ProgMemory == 0x01 ){
+                if(Option.LIBRARY_FLASH_SIZE == MAX_PROG_SIZE) ExecuteProgram(LibMemory);  // run anything that might be in the library
                 ExecuteProgram(ProgMemory);  
             }  else {
                 Option.Autorun=0;
@@ -1973,10 +1997,11 @@ int main(){
         if(!*inpbuf) continue;                                      // ignore an empty line
         char *p=inpbuf;
         skipspace(p);
-            if(strlen(p)==2 && p[1]==':'){
-                if(toupper(*p)=='A')strcpy(p,"drive \"a:\"");
-                if(toupper(*p)=='B')strcpy(p,"drive \"b:\"");
-            }
+        executelocal(p);
+        if(strlen(p)==2 && p[1]==':'){
+            if(toupper(*p)=='A')strcpy(p,"drive \"a:\"");
+            if(toupper(*p)=='B')strcpy(p,"drive \"b:\"");
+        }
         if(*p=='*'){ //shortform RUN command so convert to a normal version
                 transform_star_command(inpbuf);
                 p = inpbuf;
@@ -1995,7 +2020,39 @@ int main(){
         }
 	}
 }
+void stripcomment(char *p){
+    char *q=p;
+    int toggle=0;
+    while(*q){
+        if(*q=='\'' && toggle==0){
+            *q=0;
+            break;
+        }
+        if(*q=='"')toggle^=1;
+        q++;
+    }
+}
+void testlocal(char *p, char *command, void (*func)()){
+    int len=strlen(command);
+    if((strncasecmp(p,command,len)==0) && (strlen(p)==len || p[len]==' ' || p[len]=='\'')){
+        p+=len;
+        skipspace(p);
+        cmdline=GetTempMemory(STRINGSIZE);
+        stripcomment(p);
+        strcpy(cmdline,p);
+        (*func)();
+        memset(inpbuf,0,STRINGSIZE);
+        longjmp(mark, 1);												// jump back to the input prompt
+    }
 
+}
+void executelocal(char *p){
+    testlocal(p,"FILES",cmd_files);
+    testlocal(p,"UPDATE FIRMWARE",cmd_update);
+    testlocal(p,"NEW",cmd_new);
+    testlocal(p,"LIBRARY",cmd_library);
+    testlocal(p,"AUTOSAVE",cmd_autosave);
+}
 // takes a pointer to RAM containing a program (in clear text) and writes it to memory in tokenised format
 void SaveProgramToFlash(unsigned char *pm, int msg) {
     unsigned char *p, endtoken, fontnbr, prevchar = 0, buf[STRINGSIZE];
@@ -2188,7 +2245,14 @@ void SaveProgramToFlash(unsigned char *pm, int msg) {
                  error("Cannot redefine fonts 1, 6, or 7");
              }
 
-             FlashWriteWord(fontnbr - 1);             // a low number (< FONT_TABLE_SIZE) marks the entry as a font
+             //FlashWriteWord(fontnbr - 1);                        // a low number (< FONT_TABLE_SIZE) marks the entry as a font
+             // B31 = 1 now marks entry as font.
+             FlashWriteByte(fontnbr - 1);
+             FlashWriteByte(0x00);  
+             FlashWriteByte(0x00);
+             FlashWriteByte(0x80);    
+           
+
              skipelement(p);                                     // go to the end of the command
              p--;
          } else {
