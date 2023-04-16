@@ -1694,14 +1694,18 @@ void cmd_save(void)
         if (!BasicFileOpen(p, fnbr, FA_WRITE | FA_CREATE_ALWAYS))
             return;
         p = ProgMemory;
+        int lineno=0;
         while (!(*p == 0 || *p == 0xff))
         {                    // this is a safety precaution
             p = llist(b, p); // expand the line
             pp = b;
-            while (*pp) FilePutChar(*pp++, fnbr); // write the line to the SD card
-            FilePutChar('\r', fnbr);
-            FilePutChar('\n', fnbr); // terminate the line
-            if (p[0] == 0 && p[1] == 0) break; // end of the listing ?
+            if(!(b[0]=='\'' && b[1]=='#' && lineno==0)){
+                lineno++;
+                while (*pp) FilePutChar(*pp++, fnbr); // write the line to the SD card
+                FilePutChar('\r', fnbr);
+                FilePutChar('\n', fnbr); // terminate the line
+                if (p[0] == 0 && p[1] == 0) break; // end of the listing ?
+            }
         }
         FileClose(fnbr);
     }
@@ -1717,8 +1721,21 @@ int FileLoadProgram(unsigned char *fname)
     fnbr = FindFreeFileNbr();
     p = getFstring(fname);
     if (strchr(p, '.') == NULL) strcat(p, ".bas");
+    char q[FF_MAX_LFN]={0};
+    FatFSFileSystemSave=FatFSFileSystem;
+    getfullfilename(p,q);
+    int CurrentFileSystem=FatFSFileSystem;
+    FatFSFileSystem=FatFSFileSystemSave;
     if (!BasicFileOpen(p, fnbr, FA_READ)) return false;
     p = buf = GetTempMemory(EDIT_BUFFER_SIZE-2048); // get all the memory while leaving space for the couple of buffers defined and the file handle
+    *p++='\'';
+    *p++='#';
+    strcpy(p,CurrentFileSystem? "B:":"A:");
+    p+=2;
+    strcpy(p,q);
+    p+=strlen(q);
+    *p++='\r';
+    *p++='\n';
     while (!FileEOF(fnbr))
     { // while waiting for the end of file
         if ((p - buf) >= EDIT_BUFFER_SIZE - 512)
@@ -3563,8 +3580,10 @@ void ResetOptions(void)
     Option.repeat = 0b101100;
     uint8_t txbuf[4] = {0x9f};
     uint8_t rxbuf[4] = {0};
+    disable_interrupts();
     flash_do_cmd(txbuf, rxbuf, 4);
     Option.FlashSize= 1 << rxbuf[3];
+    enable_interrupts();
     SaveOptions();
     uSec(250000);
 }
