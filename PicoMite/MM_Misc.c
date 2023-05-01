@@ -106,6 +106,7 @@ extern void WriteCommand(int cmd);
 extern void WriteData(int data);
 char *CSubInterrupt;
 MMFLOAT optionangle=1.0;
+int optionfastaudio=0;
 volatile int CSubComplete=0;
 uint64_t timeroffset=0;
 int SaveOptionErrorSkip=0;
@@ -322,7 +323,7 @@ void cmd_timer(void) {
   uint64_t mytime=time_us_64();
   while(*cmdline && tokenfunction(*cmdline) != op_equal) cmdline++;
   if(!*cmdline) error("Syntax");
-  timeroffset=mytime-(uint64_t)getint(++cmdline,0,mytime)*1000;
+  timeroffset=mytime-(uint64_t)getint(++cmdline,0,mytime/1000)*1000;
 }
 // this is invoked as a function
 void __not_in_flash_func(fun_timer)(void) {
@@ -344,7 +345,6 @@ void fun_datetime(void){
         struct tm tma;
         tm=&tma;
         time_t timestamp = getinteger(ep); /* See README.md if your system lacks timegm(). */
-        if (timestamp < 0)error((char*)"Epoch<0");
         tm=gmtime(&timestamp);
         IntToStrPad(sret, tm->tm_mday, '0', 2, 10);
         sret[2] = '-'; IntToStrPad(sret + 3, tm->tm_mon+1, '0', 2, 10);
@@ -1947,6 +1947,12 @@ void cmd_option(void) {
 		if(checkstring(tp, "RADIANS"))	{ optionangle=1.0; return; }
 	}
 
+	tp = checkstring(cmdline, "FAST AUDIO");
+	if(tp) {
+		if(checkstring(tp, "OFF"))	{ optionfastaudio=0; return; }
+		if(checkstring(tp, "ON"))	{ optionfastaudio=1; return; }
+	}
+
     tp = checkstring(cmdline, "ESCAPE");
     if(tp) {
         OptionEscape = true;
@@ -2906,13 +2912,13 @@ int ExistsDir(char *p, char *q, int *filesystem){
     getfullfilename(p,q);
     FatFSFileSystem=t-1;
     *filesystem=FatFSFileSystem;
+    if(strcmp(q,"/")==0 || strcmp(q,"/.")==0 || strcmp(q,"/..")==0 ){FatFSFileSystem=localfilesystemsave;ireturn= 1; return ireturn;}
     if(FatFSFileSystem==0){
         struct lfs_info lfsinfo;
         memset(&lfsinfo,0,sizeof(DIR));
         FSerror = lfs_stat(&lfs, q, &lfsinfo);
         if(lfsinfo.type==LFS_TYPE_DIR)ireturn= 1;
     } else {
-        if(strcmp(q,"/")==0)return 1;
         DIR djd;
         FILINFO fnod;
         memset(&djd,0,sizeof(DIR));
@@ -3014,13 +3020,13 @@ void fun_info(void){
             return;
         } else if((tp=checkstring(ep, "EXISTS DIR"))){
             char dir[FF_MAX_LFN]={0};
-            char *p = getCstring(tp);
+            char *p = getFstring(tp);
             int filesystem;
             targ=T_INT;
             iret=ExistsDir(p,dir,&filesystem);
             return;
         } else if((tp=checkstring(ep, "EXISTS FILE"))){
-            char *p = getCstring(tp);
+            char *p = getFstring(tp);
             iret=ExistsFile(p);
             targ=T_INT;
             return;
@@ -3046,11 +3052,11 @@ void fun_info(void){
             DIR djd;
             FILINFO fnod;
             char q[FF_MAX_LFN]={0};
-            targ=T_INT;
             memset(&djd,0,sizeof(DIR));
             memset(&fnod,0,sizeof(FILINFO));
             int waste=0, t=FatFSFileSystem+1;
             char *p = getCstring(tp);
+            targ=T_INT;
             t = drivecheck(p,&waste);
             p+=waste;
             getfullfilename(p,q);
@@ -3072,9 +3078,10 @@ void fun_info(void){
                 FileClose(fnbr);
             } else {
                 if(!InitSDCard()) {iret= -1; return;}
+                if(strcmp(q,"/")==0){ iret=-2; targ=T_INT; strcpy(MMErrMsg,FErrorMsg[4]); return;}
                 FSerror = f_stat(q, &fnod);
-                if(FSerror != FR_OK){ iret=-1; targ=T_INT; strcpy(MMErrMsg,FErrorMsg[4]); return;}
                 if((fnod.fattrib & AM_DIR)){ iret=-2; targ=T_INT; strcpy(MMErrMsg,FErrorMsg[4]); return;}
+                if(FSerror != FR_OK){ iret=-1; targ=T_INT; strcpy(MMErrMsg,FErrorMsg[4]); return;}
                 iret=fnod.fsize;
             }
             FatFSFileSystem=FatFSFileSystemSave;
