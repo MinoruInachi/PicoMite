@@ -1658,7 +1658,7 @@ void printoptions(void){
     MMPrintString("\rPicoMiteVGA MMBasic Version " VERSION "\r\n");
 #endif    
 #ifdef PICOMITEWEB
-    MMPrintString("\rPicoMiteWEB MMBasic Version " VERSION "\r\n");    
+    MMPrintString("\rWebMite MMBasic Version " VERSION "\r\n");    
 #endif 
 #ifdef PICOMITE
     MMPrintString("\rPicoMite MMBasic Version " VERSION "\r\n");
@@ -2657,7 +2657,7 @@ void cmd_option(void) {
         }
     	getargs(&tp,5,",");
    	    if(CurrentLinePtr) error("Invalid in a program");
-         if(argc!=3)error("Syntax");
+        if(argc<3)error("Syntax");
         if(Option.SYSTEM_I2C_SCL)error("I2C already configured");
         unsigned char code;
         if(!(code=codecheck(argv[0])))argv[0]+=2;
@@ -2880,6 +2880,7 @@ int ExistsFile(char *p){
     char q[FF_MAX_LFN]={0};
     int retval=0;
     int waste=0, t=FatFSFileSystem+1;
+    int localfilesystemsave=FatFSFileSystem;
     t = drivecheck(p,&waste);
     p+=waste;
     getfullfilename(p,q);
@@ -2899,7 +2900,7 @@ int ExistsFile(char *p){
         if(FSerror != FR_OK)iret=0;
         else if(!(fnod.fattrib & AM_DIR))retval=1;
     }
-    FatFSFileSystem=FatFSFileSystemSave;
+    FatFSFileSystem=localfilesystemsave;
     return retval;
 }
 int ExistsDir(char *p, char *q, int *filesystem){
@@ -2923,6 +2924,7 @@ int ExistsDir(char *p, char *q, int *filesystem){
         FILINFO fnod;
         memset(&djd,0,sizeof(DIR));
         memset(&fnod,0,sizeof(FILINFO));
+        if(q[strlen(q)-1]=='/')strcat(q,".");
         if(!InitSDCard()) {FatFSFileSystem=localfilesystemsave;ireturn= -1; return ireturn;}
         FSerror = f_stat(q, &fnod);
         if(FSerror != FR_OK)ireturn=0;
@@ -3055,13 +3057,14 @@ void fun_info(void){
             memset(&djd,0,sizeof(DIR));
             memset(&fnod,0,sizeof(FILINFO));
             int waste=0, t=FatFSFileSystem+1;
-            char *p = getCstring(tp);
+            char *p = getFstring(tp);
             targ=T_INT;
             t = drivecheck(p,&waste);
             p+=waste;
             getfullfilename(p,q);
             FatFSFileSystem=t-1;
             iret=-1;
+            if(strcmp(q,"/")==0 || strcmp(q,"/.")==0 || strcmp(q,"/..")==0 ){iret= -2; strcpy(MMErrMsg,FErrorMsg[4]); return;}
             if(FatFSFileSystem==0){
                 struct lfs_info lfsinfo;
                 FSerror = lfs_stat(&lfs, q, &lfsinfo);
@@ -3078,6 +3081,7 @@ void fun_info(void){
                 FileClose(fnbr);
             } else {
                 if(!InitSDCard()) {iret= -1; return;}
+                if(q[strlen(q)-1]=='/')strcat(q,".");
                 if(strcmp(q,"/")==0){ iret=-2; targ=T_INT; strcpy(MMErrMsg,FErrorMsg[4]); return;}
                 FSerror = f_stat(q, &fnod);
                 if((fnod.fattrib & AM_DIR)){ iret=-2; targ=T_INT; strcpy(MMErrMsg,FErrorMsg[4]); return;}
@@ -3174,7 +3178,19 @@ void fun_info(void){
         return;
     } 
 #endif
-	else if(tp=checkstring(ep, "MODIFIED")){
+    else if (checkstring(ep, "LINE")) {
+        if (!CurrentLinePtr) {
+            strcpy(sret, "UNKNOWN");
+        } else if (CurrentLinePtr >= ProgMemory + MAX_PROG_SIZE) {
+            strcpy(sret, "LIBRARY");
+        } else {
+            sprintf(sret, "%d", CountLines(CurrentLinePtr));
+        }
+        CtoM(sret);
+        targ=T_STR;
+        return;
+    }	
+    else if(tp=checkstring(ep, "MODIFIED")){
 		int i,j;
 	    DIR djd;
 	    FILINFO fnod;
